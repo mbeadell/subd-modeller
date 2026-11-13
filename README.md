@@ -7,7 +7,7 @@ are unitless at this stage. Vertex IDs are zero-based.
 <img width="1038" height="871" alt="image" src="https://github.com/user-attachments/assets/8e380b94-c95c-47fd-8b92-62d567f0f54d" />
 
 
-## Run on this Mac
+## Running this on a Mac
 
 The verification toolchain was installed under `/tmp`. While it is available,
 paste this block into Terminal from any directory. With a regular Rust installation, use
