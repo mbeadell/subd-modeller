@@ -7,6 +7,12 @@ the Rust CLI.
 
 Current version: **0.2.0**.
 
+<img width="1465" height="893" alt="image" src="https://github.com/user-attachments/assets/545c79f5-5347-4710-8ac9-ef00b11add8c" />
+
+<img width="1467" height="792" alt="image" src="https://github.com/user-attachments/assets/fd949b7a-6d3b-4897-827d-59ce3ee9f510" />
+
+<img width="1463" height="792" alt="image" src="https://github.com/user-attachments/assets/2be027a1-5c0b-497b-aa9f-b2bb7613128e" />
+
 ## Run the editor
 
 Install stable Rust and Python 3, then run these commands from the checkout.
