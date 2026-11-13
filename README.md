@@ -4,6 +4,8 @@ The editable model is a fixed-topology cube cage with eight control points. The
 Rust library evaluates a deterministic Catmull–Clark preview. The command-line
 tool saves and loads the cage and exports the preview as a quad OBJ. Coordinates
 are unitless at this stage. Vertex IDs are zero-based.
+<img width="1038" height="871" alt="image" src="https://github.com/user-attachments/assets/8e380b94-c95c-47fd-8b92-62d567f0f54d" />
+
 
 ## Run on this Mac
 
