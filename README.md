@@ -3,15 +3,9 @@
 A standalone Catmull–Clark cage editor and STEP exporter for testing freeform
 modelling workflows with SolidCraft. The Rust library evaluates previews and
 builds bicubic patches. The browser editor uses a local Python server to call
-the Rust CLI.  The implementation would have a cage profile created in the sketch mode 
-then cage editing within the solidcraft view port and a splined solid body.
+the Rust CLI.
 
-<img width="1911" height="963" alt="image" src="https://github.com/user-attachments/assets/957fd094-2cb8-46ba-9f23-708b544e59b8" />
-
-
-<img width="1041" height="949" alt="image" src="https://github.com/user-attachments/assets/2d681110-79b2-457d-8074-445ceda75cb9" />
-
-<img width="978" height="601" alt="image" src="https://github.com/user-attachments/assets/dd59f21a-d547-497c-8a5b-a8dfca0772ec" />
+Current version: **0.2.0**.
 
 ## Run the editor
 
@@ -34,13 +28,12 @@ export PATH="$CARGO_HOME/bin:$PATH"
 - Left-drag a control point to edit, right-drag to orbit, and scroll to zoom.
   The Home button resets the Z-up view. Press Tab in the viewport to switch
   between the primitive cage and the rounded surface.
-- Start with the cube or a tapered shell. Set the reference width in millimetres.
-  Point mode accepts exact coordinates. Edge mode measures and resizes an
-  edge about its midpoint. These edits set geometry directly.
+- Start with the cube and insert loops as needed. Set the reference width in millimetres.
+  Click a point or edge to select it. Drag its X, Y, or Z handle, enter
+  point coordinates, or resize an edge about its midpoint.
 - Select an edge to preview a loop across connected quads. **Insert edge loop**
   adds it at the crossed edges' midpoints. Undo restores the previous cage.
-  Section transforms and mirror editing are available on the original
-  sectioned cages.
+  Toggle the cage frame, facets, and surface lines from the toolbar.
 - Save and reopen the cage, or download **Spline STEP** or **Faceted STEP**.
   Both STEP variants declare millimetres. Preview dimensions come from the
   display mesh and can differ from the exported body's bounds.
@@ -69,8 +62,6 @@ shell with a cross-plane loop also imported as one closed spline solid.
 
 ## Next session
 
-Add a position control to **Insert edge loop** so a support loop can sit near
-an existing edge. Test it on the lower rim of the tapered shell and compare the
-live preview and both STEP exports. Crease weights are the next geometry
-feature. A future native SolidCraft feature would store the cage and regenerate
+Explore mirror planes for quad cages and add crease weights to the geometry
+library. A future native SolidCraft feature would store the cage and regenerate
 the CAD body when it changes.

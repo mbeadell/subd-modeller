@@ -5,53 +5,67 @@
 <title>SubD Cage Editor</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #121a22; color: #edf4f8; font: 16px system-ui, sans-serif; }
-  main { max-width: 980px; margin: auto; padding: 32px 20px; }
-  h1 { margin: 0 0 8px; font-size: 28px; }
-  p { color: #b5c6d4; margin: 0 0 18px; }
-  .viewport { position: relative; }
+  [hidden] { display: none !important; }
+  body { margin: 0; overflow: hidden; background: #131a22; color: #edf4f8;
+    font: 14px Inter, system-ui, sans-serif; color-scheme: dark; }
+  main { height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+  header { display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+    background: #151e28; border-bottom: 1px solid #334453; z-index: 2; }
+  h1 { margin: 0 12px 0 0; font-size: 15px; white-space: nowrap; }
+  details { position: relative; }
+  summary { cursor: pointer; padding: 6px; }
+  .menu { position: absolute; top: 100%; left: 0; min-width: max-content;
+    display: grid; gap: 6px; padding: 10px; background: #202d3a;
+    border: 1px solid #465c6e; border-radius: 6px; box-shadow: 0 8px 22px #0007; }
+  .toolbar, .inspector, footer { display: flex; align-items: center; gap: 8px;
+    min-width: 0; overflow: auto; padding: 6px 12px; white-space: nowrap; }
+  .toolbar, .inspector { background: #202b36; border-bottom: 1px solid #334453; }
+  .toolbar > *, .inspector > * { flex-shrink: 0; }
+  .viewport { position: relative; min-height: 0; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; background: #1c2834; touch-action: none; }
   #home-view { position: absolute; top: 10px; right: 76px; width: 30px; height: 30px;
     padding: 4px; font-size: 20px; line-height: 1; }
-  #vertex-coordinates { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  #vertex-coordinates input { width: 7em; }
-  canvas { display: block; width: 100%; height: min(64vh, 580px); background: #1c2834;
-    border: 1px solid #425565; border-radius: 12px; touch-action: none; }
-  footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
-  button { font: inherit; color: inherit; background: #283b4b; border: 1px solid #577185;
-    border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+  .inspector { height: 46px; }
+  .inspector form { display: flex; align-items: center; gap: 8px; }
+  input[type="number"] { width: 7em; }
+  footer { height: 33px; color: #b5c6d4; font-size: 12px; }
+  #status { color: #ffbf9a; overflow: hidden; text-overflow: ellipsis; }
+  button, select, input[type="number"] { font: inherit; color: inherit; background: #283b4b;
+    border: 1px solid #577185; border-radius: 4px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button[aria-pressed="true"] { background: #385367; border-color: #86aec8; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:hover:not(:disabled) { background: #385367; }
+  .icon { font-size: 17px; line-height: 1; }
 </style>
 <main>
-  <h1>SubD Cage Editor</h1>
-  <p>Left-drag points to edit. Right-drag to orbit, scroll to zoom, and press Tab to switch views.</p>
+  <header>
+    <h1>SubD Modeller</h1>
+    <details><summary>File</summary><div class="menu">
+      <label>Open cage <input id="open-cage" type="file" accept=".cage"></label>
+      <button id="save">Save cage</button>
+      <select id="step-kind" aria-label="STEP type"><option value="spline-step">Spline STEP</option><option value="faceted-step">Faceted STEP</option></select>
+      <button id="export">Download STEP</button>
+    </div></details>
+    <details><summary>Cage</summary><div class="menu">
+      <button id="reset">Reset cage</button>
+    </div></details>
+  </header>
+  <div class="toolbar" aria-label="Modelling tools">
+    <button id="undo" disabled><span class="icon" aria-hidden="true">↶</span> Undo</button>
+    <label>Move <select id="axis"><option value="">View plane</option><option value="0">X axis</option><option value="1">Y axis</option><option value="2">Z axis</option></select></label>
+    <button id="insert-loop" disabled><span class="icon" aria-hidden="true">⊞</span> Insert edge loop</button>
+    <button id="view-mode" type="button" aria-pressed="false">Show SubD</button>
+    <button id="show-cage" type="button" aria-pressed="true">Cage frame</button>
+    <button id="show-facets" type="button" aria-pressed="true">Facets</button>
+    <button id="show-lines" type="button" aria-pressed="false">Surface lines</button>
+  </div>
   <div class="viewport">
     <canvas tabindex="0" aria-label="3D viewport with draggable cage points"></canvas>
     <button id="home-view" type="button" aria-label="Reset view" title="Reset view">⌂</button>
   </div>
-  <footer>
+  <div class="inspector" aria-label="Dimensions">
     <label>Reference cage width (mm) <input id="width" type="number" value="100" min="0.000000001" max="1000000000000" step="any" required></label>
-    <label>New shell section plane <select id="section-plane">
-      <option>XZ</option><option>YZ</option><option>XY</option>
-    </select></label>
-    <button id="shell">Start tapered shell</button>
-    <label>Selection <select id="selection"><option value="point">Point</option><option value="section">Section</option><option value="edge">Edge</option></select></label>
-    <label>Move <select id="axis"><option value="">View plane</option><option value="0">X axis</option><option value="1">Y axis</option><option value="2">Z axis</option></select></label>
-    <button id="narrow" disabled>Narrow section</button>
-    <button id="widen" disabled>Widen section</button>
-    <button id="insert-loop" disabled>Insert edge loop</button>
-    <button id="insert" disabled>Insert section</button>
-    <label><input id="symmetry" type="checkbox"> Mirror width</label>
-    <button id="view-mode" type="button" aria-pressed="false">Show SubD</button>
-    <label><input id="show-cage" type="checkbox" checked> Cage</label>
-    <label><input id="show-lines" type="checkbox"> Surface lines</label>
-    <button id="undo" disabled>Undo</button>
-    <button id="reset">Reset cage</button>
-    <button id="save">Save cage</button>
-    <label>Open cage <input id="open-cage" type="file" accept=".cage"></label>
-    <select id="step-kind" aria-label="STEP type"><option value="spline-step">Spline STEP</option><option value="faceted-step">Faceted STEP</option></select>
-    <button id="export">Download STEP</button>
-    <output id="dimensions" aria-live="off"></output>
-    <span id="status" role="status"></span>
-  </footer>
   <form id="vertex-coordinates" aria-label="Vertex coordinates in millimetres">
     <span id="vertex-label">Select a point to edit its coordinates</span>
     <label>X (mm) <input type="number" step="any" required disabled></label>
@@ -63,8 +77,30 @@
     <label>Edge length (mm) <input type="number" step="any" required></label>
     <button>Apply length</button>
   </form>
+  </div>
+  <footer>
+    <output id="dimensions" aria-live="off"></output>
+    <span>Right-drag to orbit · Scroll to zoom · Tab for cage/SubD</span>
+    <span id="status" role="status"></span>
+  </footer>
 </main>
 <script>
+const menus = [...document.querySelectorAll("header details")];
+document.addEventListener("click", event => {
+  for (const menu of menus) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    const openMenu = menus.find(menu => menu.open);
+    if (openMenu) {
+      openMenu.open = false;
+      openMenu.querySelector("summary").focus();
+    }
+  }
+});
+
 const canvas = document.querySelector("canvas");
 const context = canvas.getContext("2d");
 const status = document.querySelector("#status");
@@ -75,49 +111,24 @@ const cube = [
   [-1,-1,-1], [1,-1,-1], [1,1,-1], [-1,1,-1],
   [-1,-1,1], [1,-1,1], [1,1,1], [-1,1,1]
 ];
-const selection = document.querySelector("#selection");
-const narrow = document.querySelector("#narrow");
-const widen = document.querySelector("#widen");
 
-const insert = document.querySelector("#insert");
-const symmetry = document.querySelector("#symmetry");
 const showCage = document.querySelector("#show-cage");
 const showLines = document.querySelector("#show-lines");
 const exportButton = document.querySelector("#export");
 let exporting = false;
 
-showCage.onchange = showLines.onchange = draw;
-
-insert.onclick = () => {
-  if (drag || insert.disabled) return;
-  const start = selected - selected % 4;
-  const left = Math.min(start, cage.length - 8);
-  const section = cage.slice(left, left + 4).map((point, index) =>
-    point.map((value, axis) => (value + cage[left + 4 + index][axis]) / 2));
-  remember(cage.map(point => [...point]));
-  cage.splice(left + 4, 0, ...section);
-  selection.value = "section";
-  selected = left + 4;
-  draw();
-  refresh();
-};
-
-function symmetryAxis() {
-  const [left, right] = cage.slice(0, 2);
-  return Math.abs(right[1] - left[1]) > Math.abs(right[0] - left[0]) ? 1 : 0;
+const showFacets = document.querySelector("#show-facets");
+const isOn = button => button.getAttribute("aria-pressed") === "true";
+for (const button of [showCage, showFacets, showLines]) {
+  button.onclick = () => {
+    button.setAttribute("aria-pressed", String(!isOn(button)));
+    draw();
+  };
 }
 
-function moveSelection(delta, points = drag.points, mirrorEnabled = drag.mirror) {
-  const moved = new Set(points);
-  for (const index of moved) {
-    const start = index - index % 4;
-    const mirror = start + [1, 0, 3, 2][index % 4];
-    const widthAxis = symmetryAxis();
-    cage[index] = cage[index].map((value, axis) =>
-      value + (axis === widthAxis && mirrorEnabled && moved.has(mirror) ? 0 : delta[axis]));
-    if (mirrorEnabled && !moved.has(mirror)) {
-      cage[mirror] = cage[mirror].map((value, axis) => value + (axis === widthAxis ? -delta[axis] : delta[axis]));
-    }
+function moveSelection(delta) {
+  for (const index of drag.points) {
+    cage[index] = cage[index].map((value, axis) => value + delta[axis]);
   }
 }
 
@@ -207,27 +218,6 @@ insertLoop.onclick = () => {
   refresh();
 };
 
-function selectedPoints() {
-  if (selected === null || selected >= cage.length) return [];
-  const start = selected - selected % 4;
-  return selection.value === "section" && !explicitFaces ? [start, start + 1, start + 2, start + 3] : [selected];
-}
-
-function sectionWidth(factor) {
-  const points = selectedPoints();
-  if (drag || points.length !== 4) return;
-  remember(cage.map(point => [...point]));
-  const axis = symmetryAxis();
-  const center = points.reduce((sum, index) => sum + cage[index][axis], 0) / 4;
-  for (const index of points) cage[index][axis] = center + (cage[index][axis] - center) * factor;
-  draw();
-  refresh();
-}
-
-narrow.onclick = () => sectionWidth(0.9);
-widen.onclick = () => sectionWidth(1 / 0.9);
-selection.onchange = () => { selectedEdge = null; draw(); };
-
 let explicitFaces = null;
 let cage = cube.map(point => [...point]);
 let mesh = { points: [], faces: [] };
@@ -254,7 +244,7 @@ const applyCoordinates = coordinateForm.querySelector("button");
 const vertexLabel = document.querySelector("#vertex-label");
 
 function syncCoordinates() {
-  const point = selection.value === "point" ? cage[selected] : undefined;
+  const point = cage[selected];
   const enabled = !!point && width.validity.valid && !drag;
   vertexLabel.textContent = point ? `Vertex ${selected + 1}` : "Select a point to edit its coordinates";
   applyCoordinates.disabled = !enabled;
@@ -276,8 +266,6 @@ coordinateForm.onsubmit = event => {
     return;
   }
   remember(cage.map(point => [...point]));
-  const delta = point.map((value, axis) => value - cage[selected][axis]);
-  moveSelection(delta, [selected], symmetry.checked && !explicitFaces);
   cage[selected] = point;
   draw();
   refresh();
@@ -306,7 +294,7 @@ function edgeVector() {
 }
 
 function syncEdgeDimension() {
-  edgeForm.hidden = selection.value !== "edge";
+  edgeForm.hidden = selectedEdge === null;
   const enabled = !edgeForm.hidden && selectedEdge && width.validity.valid && !drag;
   applyLength.disabled = edgeLength.disabled = !enabled;
   if (document.activeElement !== edgeLength) {
@@ -428,8 +416,57 @@ function cageFaces() {
   return faces;
 }
 
+const axisColors = ["#ff7777", "#80df99", "#85bbff"];
+
+function axisHandles() {
+  if (!isOn(showCage)) return [];
+  let origin;
+  if (selectedEdge) {
+    const [a, b] = selectedEdge.map(index => cage[index]);
+    origin = a.map((value, axis) => (value + b[axis]) / 2);
+  } else if (selected !== null) {
+    origin = cage[selected];
+  }
+  if (!origin) return [];
+  const [x, y] = project(origin);
+  return axisColors.flatMap((color, index) => {
+    const [u, v] = camera(axisColors.map((_, i) => Number(i === index)));
+    const length = Math.hypot(u, v);
+    if (length < 0.1) return [];
+    return [{index, color, x, y, dx: u / length, dy: -v / length}];
+  });
+}
+
+function drawAxisHandles() {
+  for (const {index, color, x, y, dx, dy} of axisHandles()) {
+    const tipX = x + 54 * dx, tipY = y + 54 * dy;
+    context.strokeStyle = context.fillStyle = color;
+    context.lineWidth = drag?.axis === String(index) ? 4 : 2;
+    context.beginPath();
+    context.moveTo(x + 9 * dx, y + 9 * dy);
+    context.lineTo(tipX, tipY);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(tipX, tipY);
+    context.lineTo(tipX - 11 * dx + 5 * dy, tipY - 11 * dy - 5 * dx);
+    context.lineTo(tipX - 11 * dx - 5 * dy, tipY - 11 * dy + 5 * dx);
+    context.closePath();
+    context.fill();
+    context.fillText("XYZ"[index], tipX + 11 * dx, tipY + 11 * dy);
+  }
+}
+
+function pickAxisHandle(x, y) {
+  const hits = axisHandles().map(handle => {
+    const dx = x - handle.x, dy = y - handle.y;
+    const along = Math.max(23, Math.min(58, dx * handle.dx + dy * handle.dy));
+    return {index: handle.index, distance: Math.hypot(dx - along * handle.dx, dy - along * handle.dy)};
+  }).filter(hit => hit.distance <= 8);
+  hits.sort((a, b) => a.distance - b.distance);
+  return hits[0]?.index;
+}
+
 function draw() {
-  symmetry.disabled = !!explicitFaces;
   syncEdgeDimension();
   syncCoordinates();
   const ratio = window.devicePixelRatio || 1;
@@ -437,7 +474,7 @@ function draw() {
   canvas.height = Math.round(canvas.clientHeight * ratio);
   context.scale(ratio, ratio);
   const projected = (smoothView ? mesh.points : cage).map(project);
-  const lines = smoothView && showLines.checked ? surfaceLines(mesh.faces.length / 64) : new Map();
+  const lines = smoothView && isOn(showLines) ? surfaceLines(mesh.faces.length / 64) : new Map();
   const faces = (smoothView ? mesh.faces : cageFaces()).map((face, index) => {
     const points = face.map(index => projected[index]);
     const [a, b, c] = points;
@@ -452,11 +489,13 @@ function draw() {
     context.beginPath();
     points.forEach(([x, y], index) => index ? context.lineTo(x, y) : context.moveTo(x, y));
     context.closePath();
-    context.fillStyle = `hsl(198 50% ${27 + 44 * light}%)`;
-    context.fill();
-    context.strokeStyle = context.fillStyle;
-    context.stroke();
-    context.strokeStyle = "#183746";
+    if (isOn(showFacets)) {
+      context.fillStyle = `hsl(198 50% ${27 + 44 * light}%)`;
+      context.fill();
+      context.strokeStyle = context.fillStyle;
+      context.stroke();
+    }
+    context.strokeStyle = isOn(showFacets) ? "#183746" : "#fff";
     for (const edge of edges) {
       context.beginPath();
       context.moveTo(...points[edge].slice(0, 2));
@@ -466,14 +505,12 @@ function draw() {
   }
 
   const corners = cage.map(project);
-  const highlighted = selectedPoints();
-  narrow.disabled = widen.disabled = highlighted.length !== 4;
-  insert.disabled = !!explicitFaces || !highlighted.length || cage.length >= 32;
+  const highlighted = selectedEdge ?? (selected === null ? [] : [selected]);
   const facesForLoop = cageFaces();
-  const loop = selection.value === "edge" && selectedEdge ? traceLoop(selectedEdge, facesForLoop) : null;
+  const loop = selectedEdge ? traceLoop(selectedEdge, facesForLoop) : null;
   insertLoop.disabled = !loop || facesForLoop.length + loop.size > 126;
   drawOrientation();
-  if (smoothView && !showCage.checked) return;
+  if (!isOn(showCage)) return;
   if (loop && !insertLoop.disabled) {
     context.strokeStyle = "#77dbff";
     context.lineWidth = 2;
@@ -490,21 +527,11 @@ function draw() {
       context.stroke();
     }
   }
-  if (selected !== null && axis.value !== "") {
-    const origin = cage[selected];
-    const end = origin.map((coordinate, index) => coordinate + (index === Number(axis.value) ? 0.5 : 0));
-    context.strokeStyle = ["#ff7777", "#80df99", "#85bbff"][Number(axis.value)];
-    context.lineWidth = 3;
-    context.beginPath();
-    context.moveTo(...corners[selected].slice(0, 2));
-    context.lineTo(...project(end).slice(0, 2));
-    context.stroke();
-  }
   context.strokeStyle = "#f9ca83";
   context.lineWidth = 1.5;
   for (const [a, b] of cageEdges()) {
-    const active = selection.value === "edge" && selectedEdge?.[0] === a && selectedEdge[1] === b;
-    context.strokeStyle = active ? "#ffffff" : "#f9ca83";
+    const active = selectedEdge?.[0] === a && selectedEdge[1] === b;
+    context.strokeStyle = active ? (drag?.axis ? axisColors[Number(drag.axis)] : "#fff") : "#f9ca83";
     context.lineWidth = active ? 4 : 1.5;
     context.beginPath();
     context.moveTo(...corners[a].slice(0, 2));
@@ -514,9 +541,12 @@ function draw() {
   corners.forEach(([x, y], index) => {
     context.beginPath();
     context.arc(x, y, highlighted.includes(index) ? 8 : 5, 0, Math.PI * 2);
-    context.fillStyle = "#ffdc9d";
+    context.fillStyle = highlighted.includes(index)
+      ? (drag?.axis ? axisColors[Number(drag.axis)] : "#fff")
+      : "#ffdc9d";
     context.fill();
   });
+  drawAxisHandles();
 }
 
 function updateDimensions() {
@@ -588,24 +618,24 @@ canvas.addEventListener("pointerdown", event => {
   canvas.focus({preventScroll: true});
   const bounds = canvas.getBoundingClientRect();
   const x = event.clientX - bounds.left, y = event.clientY - bounds.top;
-  if (event.button === 0 && selection.value === "edge") {
-    selectedEdge = !smoothView || showCage.checked ? pickEdge(x, y) : null;
-    selected = null;
-    draw();
-    return;
-  }
-  const hits = (event.button === 0 && (!smoothView || showCage.checked) ? cage : []).map((point, index) => {
+  const handle = event.button === 0 ? pickAxisHandle(x, y) : undefined;
+  const hits = (event.button === 0 && isOn(showCage) ? cage : []).map((point, index) => {
     const [px, py, depth] = project(point);
     return {index, depth, distance: Math.hypot(x - px, y - py)};
   }).filter(hit => hit.distance <= 13);
   hits.sort((a, b) => a.distance - b.distance || b.depth - a.depth);
-  if (event.button === 0 && !hits.length) return;
-  drag = { pointer: event.pointerId, index: hits[0]?.index, x: event.clientX, y: event.clientY };
-  if (drag.index !== undefined) {
-    selected = drag.index;
-    drag.axis = axis.value;
-    drag.mirror = symmetry.checked && !explicitFaces;
-    drag.points = selectedPoints();
+  if (event.button === 0 && handle === undefined) {
+    selected = hits[0]?.index ?? null;
+    selectedEdge = selected === null && isOn(showCage) ? pickEdge(x, y) : null;
+    if (selected === null) {
+      draw();
+      return;
+    }
+  }
+  drag = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
+  if (event.button === 0) {
+    drag.axis = handle === undefined ? axis.value : String(handle);
+    drag.points = selectedEdge ?? [selected];
     drag.before = cage.map(point => [...point]);
   }
   canvas.setPointerCapture(event.pointerId);
@@ -617,7 +647,7 @@ canvas.addEventListener("pointermove", event => {
   const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
   drag.x = event.clientX;
   drag.y = event.clientY;
-  if (drag.index === undefined) {
+  if (!drag.points) {
     yaw += dx * 0.01;
     pitch = Math.max(-1.5, Math.min(1.5, pitch + dy * 0.01));
   } else if (drag.axis !== "") {
@@ -677,30 +707,6 @@ document.querySelector("#reset").onclick = () => {
   selectedEdge = null;
   explicitFaces = null;
   cage = cube.map(point => [...point]);
-  draw();
-  refresh();
-};
-document.querySelector("#shell").onclick = () => {
-  if (drag) return;
-  remember(cage);
-  selected = null;
-  selectedEdge = null;
-  // The shell runs along Y, with height along Z.
-  explicitFaces = null;
-  cage = [
-    [-1.55, 0.65, -0.38, 0.40],
-    [-0.8, 1.0, -0.45, 0.85],
-    [0.15, 0.92, -0.45, 0.70],
-    [0.95, 0.65, -0.38, 0.33],
-    [1.5, 0.38, -0.29, 0.05]
-  ].flatMap(([length, halfWidth, bottom, top]) => [
-    [-halfWidth, -length, bottom], [halfWidth, -length, bottom],
-    [halfWidth, -length, top], [-halfWidth, -length, top]
-  ]);
-  const plane = document.querySelector("#section-plane").value;
-  if (plane === "XY") cage = cage.map(([x, y, z]) => [x, -z, y]);
-  if (plane === "YZ") cage = cage.map(([x, y, z]) => [-y, x, z]);
-  selection.value = "section";
   draw();
   refresh();
 };
