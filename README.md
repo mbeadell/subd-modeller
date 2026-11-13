@@ -7,6 +7,7 @@ the Rust CLI.
 
 <img width="1041" height="949" alt="image" src="https://github.com/user-attachments/assets/2d681110-79b2-457d-8074-445ceda75cb9" />
 
+<img width="978" height="601" alt="image" src="https://github.com/user-attachments/assets/dd59f21a-d547-497c-8a5b-a8dfca0772ec" />
 
 ## Run the editor
 
