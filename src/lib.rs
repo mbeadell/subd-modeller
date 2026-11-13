@@ -33,10 +33,11 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A closed cage with four control points per cross-section.
+/// A closed, oriented quad cage.
 #[derive(Clone, Debug)]
 pub struct Cage {
     points: Vec<Point>,
+    quads: Option<Vec<Quad>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -48,6 +49,7 @@ pub struct Mesh {
 impl Cage {
     pub fn cube() -> Self {
         Self {
+            quads: None,
             points: vec![
                 [-1., -1., -1.],
                 [1., -1., -1.],
@@ -72,7 +74,60 @@ impl Cage {
         for &point in &points {
             validate_point(point)?;
         }
-        Ok(Self { points })
+        Ok(Self {
+            points,
+            quads: None,
+        })
+    }
+
+    pub fn from_quads(points: Vec<Point>, quads: Vec<Quad>) -> Result<Self, Error> {
+        if !(8..=128).contains(&points.len()) || !(6..=126).contains(&quads.len()) {
+            return Err(Error::InvalidTopology);
+        }
+        for &point in &points {
+            validate_point(point)?;
+        }
+        let mut rings = vec![BTreeMap::new(); points.len()];
+        for &[a, b, c, d] in &quads {
+            let mut vertices = [a, b, c, d];
+            vertices.sort_unstable();
+            if vertices
+                .windows(2)
+                .any(|pair| matches!(pair, [x, y] if x == y))
+            {
+                return Err(Error::InvalidTopology);
+            }
+            for (vertex, from, to) in [(a, d, b), (b, a, c), (c, b, d), (d, c, a)] {
+                let ring = rings.get_mut(vertex).ok_or(Error::InvalidTopology)?;
+                if ring.insert(from, to).is_some() {
+                    return Err(Error::InvalidTopology);
+                }
+            }
+        }
+        for ring in rings {
+            if ring.len() < 3 {
+                return Err(Error::InvalidTopology);
+            }
+            let (&start, _) = ring.first_key_value().ok_or(Error::InvalidTopology)?;
+            let mut next = start;
+            for index in 0..ring.len() {
+                next = *ring.get(&next).ok_or(Error::InvalidTopology)?;
+                if next == start && index + 1 != ring.len() {
+                    return Err(Error::InvalidTopology);
+                }
+            }
+            if next != start {
+                return Err(Error::InvalidTopology);
+            }
+        }
+        Ok(Self {
+            points,
+            quads: Some(quads),
+        })
+    }
+
+    pub fn explicit_quads(&self) -> Option<&[Quad]> {
+        self.quads.as_deref()
     }
 
     pub fn points(&self) -> &[Point] {
@@ -90,13 +145,18 @@ impl Cage {
         if levels > 6 {
             return Err(Error::TooManyLevels);
         }
-        let end = self.points.len() - 4;
-        let mut quads = vec![[0, 3, 2, 1], [end, end + 1, end + 2, end + 3]];
-        for start in (0..end).step_by(4) {
-            for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
-                quads.push([start + a, start + b, start + b + 4, start + a + 4]);
+        let quads = if let Some(quads) = &self.quads {
+            quads.clone()
+        } else {
+            let end = self.points.len() - 4;
+            let mut quads = vec![[0, 3, 2, 1], [end, end + 1, end + 2, end + 3]];
+            for start in (0..end).step_by(4) {
+                for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+                    quads.push([start + a, start + b, start + b + 4, start + a + 4]);
+                }
             }
-        }
+            quads
+        };
         let mut mesh = Mesh {
             points: self.points.clone(),
             quads,

@@ -24,20 +24,22 @@ class Editor(BaseHTTPRequestHandler):
             if self.headers.get_content_type() != "application/json":
                 raise ValueError("Expected JSON")
             size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= 4096:
+            if not 0 < size <= 32768:
                 raise ValueError("Invalid request size")
             payload = json.loads(self.rfile.read(size))
             width = 2
-            if self.path == "/preview":
+            quads = None
+            if self.path == "/preview" and isinstance(payload, list):
                 points = payload
             else:
                 if not isinstance(payload, dict):
                     raise ValueError("Expected cage and width")
                 points = payload.get("points")
-                width = payload.get("width")
+                quads = payload.get("quads")
+                width = 2 if self.path == "/preview" else payload.get("width")
                 if type(width) not in (int, float) or not 1e-9 <= width <= 1e12:
                     raise ValueError("Invalid width")
-            if not isinstance(points, list) or len(points) not in range(8, 33, 4):
+            if not isinstance(points, list) or len(points) not in (range(8, 33, 4) if quads is None else range(8, 129)):
                 raise ValueError("Expected two to eight sections")
             for point in points:
                 if not isinstance(point, list) or len(point) != 3 or any(
@@ -45,12 +47,22 @@ class Editor(BaseHTTPRequestHandler):
                     for value in point
                 ):
                     raise ValueError("Invalid control point")
+            if quads is not None and (
+                not isinstance(quads, list) or not 6 <= len(quads) <= 126 or any(
+                    not isinstance(face, list) or len(face) != 4 or any(
+                        type(index) is not int or not 0 <= index < len(points)
+                        for index in face
+                    ) for face in quads
+                )
+            ):
+                raise ValueError("Invalid quads")
             with tempfile.TemporaryDirectory() as directory:
                 cage = Path(directory) / "input.cage"
                 result = Path(directory) / "result"
-                cage.write_text(f"subd-sections 1\nwidth-mm {width}\n" + "".join(
+                header = "subd-sections 1" if quads is None else "subd-quads 1"
+                cage.write_text(f"{header}\nwidth-mm {width}\n" + "".join(
                     " ".join(map(str, point)) + "\n" for point in points
-                ))
+                ) + "".join("q " + " ".join(map(str, face)) + "\n" for face in (quads or [])))
                 commands = {
                     "/preview": ["preview", cage, "3", result],
                     "/spline-step": ["spline-step", cage, result],

@@ -17,7 +17,11 @@ const USAGE: &str = "Usage:
 
 fn save(cage: &Cage, width_mm: Option<f64>, path: &str) -> Result<(), Box<dyn Error>> {
     let mut writer = output(path)?;
-    if cage.points().len() != 8 {
+    if cage.explicit_quads().is_some() {
+        let width = width_mm.ok_or("quad cages require millimetre scale")?;
+        writeln!(writer, "subd-quads 1")?;
+        writeln!(writer, "width-mm {width}")?;
+    } else if cage.points().len() != 8 {
         let width = width_mm.ok_or("sectioned cages require millimetre scale")?;
         writeln!(writer, "subd-sections 1")?;
         writeln!(writer, "width-mm {width}")?;
@@ -29,6 +33,11 @@ fn save(cage: &Cage, width_mm: Option<f64>, path: &str) -> Result<(), Box<dyn Er
     }
     for [x, y, z] in cage.points() {
         writeln!(writer, "{x} {y} {z}")?;
+    }
+    if let Some(quads) = cage.explicit_quads() {
+        for [a, b, c, d] in quads {
+            writeln!(writer, "q {a} {b} {c} {d}")?;
+        }
     }
     writer.flush()?;
     Ok(())
@@ -46,10 +55,11 @@ fn parse_width(value: &str) -> Result<f64, Box<dyn Error>> {
 fn load(path: &str) -> Result<(Cage, Option<f64>), Box<dyn Error>> {
     let mut lines = BufReader::new(File::open(path)?).lines();
     let header = lines.next().transpose()?;
+    let explicit = header.as_deref() == Some("subd-quads 1");
     let sectioned = header.as_deref() == Some("subd-sections 1");
     let width_mm = match header.as_deref() {
         Some(CAGE_HEADER) => None,
-        Some("subd-cube 2" | "subd-sections 1") => {
+        Some("subd-cube 2" | "subd-sections 1" | "subd-quads 1") => {
             let line = lines.next().transpose()?.ok_or("missing cage width")?;
             Some(parse_width(
                 line.strip_prefix("width-mm ").ok_or("expected width-mm")?,
@@ -58,11 +68,26 @@ fn load(path: &str) -> Result<(Cage, Option<f64>), Box<dyn Error>> {
         _ => return Err("invalid cage header".into()),
     };
     let mut points = Vec::new();
+    let mut quads = Vec::new();
     for line in lines {
-        if points.len() == 32 {
+        let line = line?;
+        if let Some(face) = line.strip_prefix("q ").filter(|_| explicit) {
+            if quads.len() == 126 {
+                return Err("too many quad faces".into());
+            }
+            let indices = face
+                .split_whitespace()
+                .map(str::parse)
+                .collect::<Result<Vec<usize>, _>>()?;
+            let quad = indices
+                .try_into()
+                .map_err(|_| "expected four quad indices")?;
+            quads.push(quad);
+            continue;
+        }
+        if points.len() == if explicit { 128 } else { 32 } {
             return Err("too many control points".into());
         }
-        let line = line?;
         let mut fields = line.split_whitespace();
         let mut point: Point = [0.; 3];
         for coordinate in &mut point {
@@ -72,6 +97,9 @@ fn load(path: &str) -> Result<(Cage, Option<f64>), Box<dyn Error>> {
             return Err("too many coordinates".into());
         }
         points.push(point);
+    }
+    if explicit {
+        return Ok((Cage::from_quads(points, quads)?, width_mm));
     }
     if !sectioned && points.len() != 8 {
         return Err("cube cages require eight control points".into());
