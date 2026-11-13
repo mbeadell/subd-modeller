@@ -5,6 +5,9 @@ modelling workflows with SolidCraft. The Rust library evaluates previews and
 builds bicubic patches. The browser editor uses a local Python server to call
 the Rust CLI.
 
+<img width="1911" height="963" alt="image" src="https://github.com/user-attachments/assets/957fd094-2cb8-46ba-9f23-708b544e59b8" />
+
+
 <img width="1041" height="949" alt="image" src="https://github.com/user-attachments/assets/2d681110-79b2-457d-8074-445ceda75cb9" />
 
 <img width="978" height="601" alt="image" src="https://github.com/user-attachments/assets/dd59f21a-d547-497c-8a5b-a8dfca0772ec" />
