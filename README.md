@@ -3,7 +3,8 @@
 A standalone Catmull–Clark cage editor and STEP exporter for testing freeform
 modelling workflows with SolidCraft. The Rust library evaluates previews and
 builds bicubic patches. The browser editor uses a local Python server to call
-the Rust CLI.
+the Rust CLI.  The implementation would have cage created in the sketch mode 
+then cage editing within the solidcraft view port and a splined solid body.
 
 <img width="1911" height="963" alt="image" src="https://github.com/user-attachments/assets/957fd094-2cb8-46ba-9f23-708b544e59b8" />
 
