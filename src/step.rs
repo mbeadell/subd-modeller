@@ -196,7 +196,16 @@ fn spline_faces(
         let grid_refs = columns
             .map(|column| format!("({})", references(&column)))
             .join(",");
-        let surface = step.entity(format_args!("B_SPLINE_SURFACE_WITH_KNOTS('',3,3,({grid_refs}),.UNSPECIFIED.,.F.,.F.,.F.,(4,4),(4,4),(0.,1.),(0.,1.),.PIECEWISE_BEZIER_KNOTS.)"))?;
+        let surface = if let Some((normal, tangent)) = planar_frame(patch.control_points) {
+            let axis = step.coordinates("DIRECTION", normal)?;
+            let reference = step.coordinates("DIRECTION", tangent)?;
+            let placement = step.entity(format_args!(
+                "AXIS2_PLACEMENT_3D('',#{sw},#{axis},#{reference})"
+            ))?;
+            step.entity(format_args!("PLANE('',#{placement})"))?
+        } else {
+            step.entity(format_args!("B_SPLINE_SURFACE_WITH_KNOTS('',3,3,({grid_refs}),.UNSPECIFIED.,.F.,.F.,.F.,(4,4),(4,4),(0.,1.),(0.,1.),.PIECEWISE_BEZIER_KNOTS.)"))?
+        };
 
         for (vertex, point) in [(a, sw), (b, se), (c, ne), (d, nw)] {
             if let std::collections::btree_map::Entry::Vacant(entry) = vertices.entry(vertex) {
@@ -235,4 +244,31 @@ fn spline_faces(
         faces.push(step.entity(format_args!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))?);
     }
     Ok(faces)
+}
+
+// Planar patches use a regular plane parameterization even where two
+// boundary curves meet tangentially.
+fn planar_frame(points: [[Point; 4]; 4]) -> Option<(Point, Point)> {
+    let [[origin, _, _, east], _, _, [north, _, _, northeast]] = points;
+    let tangent = unit(subtract(east, origin)).ok()?;
+    let normal = unit(cross(tangent, subtract(northeast, origin)))
+        .or_else(|_| unit(cross(tangent, subtract(north, origin))))
+        .ok()?;
+    let [nx, ny, nz] = normal;
+    let size = points
+        .into_iter()
+        .flatten()
+        .map(|point| {
+            let [x, y, z] = subtract(point, origin);
+            x.hypot(y).hypot(z)
+        })
+        .fold(0., f64::max);
+    points
+        .into_iter()
+        .flatten()
+        .all(|point| {
+            let [x, y, z] = subtract(point, origin);
+            (nx * x + ny * y + nz * z).abs() <= size * 1e-12
+        })
+        .then_some((normal, tangent))
 }

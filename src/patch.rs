@@ -49,6 +49,9 @@ impl Cage {
     /// extraordinary vertex are omitted. Two refinements expose regular spans
     /// on the cube while retaining three unresolved faces per original corner.
     pub fn regular_patches(&self, levels: u8) -> Result<Vec<BicubicPatch>, Error> {
+        if !self.creases().is_empty() {
+            return Err(Error::CreasedSpline);
+        }
         let mesh = self.preview(levels)?;
         let mut successors = BTreeMap::new();
         let mut valences = BTreeMap::new();
@@ -218,12 +221,23 @@ pub struct SurfacePatch {
 
 impl Cage {
     pub fn surface_patches(&self) -> Result<Vec<SurfacePatch>, Error> {
-        let regular: BTreeMap<_, _> = self
-            .regular_patches(3)?
-            .into_iter()
-            .map(|patch| (patch.face, patch.bezier_control_points()))
-            .collect();
-        let mut mesh = self.preview(3)?;
+        if crate::crease_neighbors(self.creases())
+            .values()
+            .any(|neighbors| neighbors.len() != 2)
+        {
+            return Err(Error::CreasedSpline);
+        }
+        let regular: BTreeMap<_, _> = if self.creases().is_empty() {
+            self.regular_patches(3)?
+                .into_iter()
+                .map(|patch| (patch.face, patch.bezier_control_points()))
+                .collect()
+        } else {
+            // Use the same interpolation on both sides of every seam so
+            // neighboring patches share the same cubic boundary.
+            BTreeMap::new()
+        };
+        let (mut mesh, mut creases) = self.refined(3)?;
         let mut grids = BTreeMap::new();
         for face in 0..mesh.quads.len() {
             if !regular.contains_key(&face) {
@@ -235,9 +249,9 @@ impl Cage {
             for cells in grids.values_mut() {
                 *cells = children(cells);
             }
-            mesh = crate::refine(&mesh)?;
+            (mesh, creases) = crate::refine_with_creases(&mesh, &creases)?;
         }
-        let limits = limit_points(&mesh)?;
+        let limits = limit_points_with_creases(&mesh, &creases)?;
 
         let mut patches = Vec::new();
         for (face, cells) in grids {
@@ -298,7 +312,15 @@ fn children(cells: &[Cell]) -> Vec<Cell> {
     result
 }
 
+#[cfg(test)]
 fn limit_points(mesh: &crate::Mesh) -> Result<Vec<Point>, Error> {
+    limit_points_with_creases(mesh, &Default::default())
+}
+
+fn limit_points_with_creases(
+    mesh: &crate::Mesh,
+    creases: &std::collections::BTreeSet<crate::EdgeKey>,
+) -> Result<Vec<Point>, Error> {
     use crate::{add, scale};
     let mut rings = vec![([0.; 3], [0.; 3], 0_u32); mesh.points.len()];
     let point = |id| mesh.points.get(id).copied().ok_or(Error::InvalidTopology);
@@ -311,16 +333,24 @@ fn limit_points(mesh: &crate::Mesh) -> Result<Vec<Point>, Error> {
             *count += 1;
         }
     }
+    let sharp = crate::crease_neighbors(creases);
     mesh.points
         .iter()
         .zip(rings)
-        .map(|(&point, (neighbors, diagonals, count))| {
+        .enumerate()
+        .map(|(vertex, (&position, (neighbors, diagonals, count)))| {
+            if let Some(&[a, b]) = sharp.get(&vertex).map(Vec::as_slice) {
+                return Ok(scale(
+                    add(add(point(a)?, point(b)?), scale(position, 4.)),
+                    1. / 6.,
+                ));
+            }
             if count < 3 {
                 return Err(Error::InvalidTopology);
             }
             let n = f64::from(count);
             Ok(scale(
-                add(add(scale(point, n * n), scale(neighbors, 4.)), diagonals),
+                add(add(scale(position, n * n), scale(neighbors, 4.)), diagonals),
                 1. / (n * (n + 5.)),
             ))
         })
@@ -393,6 +423,42 @@ mod fitting_tests {
         let [x, y, z] = difference(sample(net, u, v + 1e-5), sample(net, u, v - 1e-5));
         let n = [b * z - c * y, c * x - a * z, a * y - b * x];
         crate::scale(n, 1. / distance(n, [0.; 3]))
+    }
+
+    #[test]
+    fn closed_crease_ring_keeps_shared_boundary_and_sharp_normals() {
+        let mut cage = Cage::cube();
+        cage.set_creases([(4, 5), (5, 6), (6, 7), (7, 4)]).unwrap();
+        let (mesh, creases) = cage.refined(3).unwrap();
+        let patches = cage.surface_patches().unwrap();
+        let mut boundaries = BTreeMap::new();
+        let mut checked = 0;
+        for patch in &patches {
+            let [a, b, c, d] = mesh.quads[patch.face];
+            for (side, (a, b)) in [(a, b), (b, c), (c, d), (d, a)].into_iter().enumerate() {
+                if !creases.contains(&crate::edge_key(a, b)) {
+                    continue;
+                }
+                let mut curve = boundary(&patch.control_points, side);
+                let n = normal(&patch.control_points, side, 0.5);
+                if let Some((other, other_normal)) = boundaries.remove(&(b, a)) {
+                    curve.reverse();
+                    assert!(curve
+                        .into_iter()
+                        .zip(other)
+                        .all(|(p, q)| distance(p, q) < 1e-12));
+                    let dot: f64 = n.into_iter().zip(other_normal).map(|(x, y)| x * y).sum();
+                    assert!(dot.abs() < 0.35, "crease normal dot product {dot}");
+                    checked += 1;
+                } else {
+                    boundaries.insert((a, b), (curve, n));
+                }
+            }
+        }
+        assert_eq!(checked, 32);
+        assert!(boundaries.is_empty());
+        cage.set_creases([(4, 5)]).unwrap();
+        assert_eq!(cage.surface_patches().unwrap_err(), Error::CreasedSpline);
     }
 
     #[test]

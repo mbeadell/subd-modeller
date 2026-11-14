@@ -1,7 +1,7 @@
 mod patch;
 pub use patch::{BicubicPatch, SurfacePatch};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub type Point = [f64; 3];
@@ -14,6 +14,7 @@ pub enum Error {
     InvalidVertex,
     InvalidTopology,
     TooManyLevels,
+    CreasedSpline,
 }
 
 impl fmt::Display for Error {
@@ -25,6 +26,7 @@ impl fmt::Display for Error {
                 Self::InvalidPoint => "expected finite coordinates within ±1e12",
                 Self::InvalidVertex => "vertex index is out of range",
                 Self::InvalidTopology => "expected a closed quad mesh",
+                Self::CreasedSpline => "spline STEP requires closed crease rings without branches",
                 Self::TooManyLevels => "subdivision level must be between 0 and 6",
             }
         )
@@ -38,6 +40,7 @@ impl std::error::Error for Error {}
 pub struct Cage {
     points: Vec<Point>,
     quads: Option<Vec<Quad>>,
+    creases: BTreeSet<EdgeKey>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,6 +53,7 @@ impl Cage {
     pub fn cube() -> Self {
         Self {
             quads: None,
+            creases: BTreeSet::new(),
             points: vec![
                 [-1., -1., -1.],
                 [1., -1., -1.],
@@ -77,6 +81,7 @@ impl Cage {
         Ok(Self {
             points,
             quads: None,
+            creases: BTreeSet::new(),
         })
     }
 
@@ -123,7 +128,31 @@ impl Cage {
         Ok(Self {
             points,
             quads: Some(quads),
+            creases: BTreeSet::new(),
         })
+    }
+
+    pub fn creases(&self) -> &BTreeSet<EdgeKey> {
+        &self.creases
+    }
+
+    pub fn set_creases(&mut self, edges: impl IntoIterator<Item = EdgeKey>) -> Result<(), Error> {
+        let mesh = self.preview(0)?;
+        let mut valid = BTreeSet::new();
+        for [a, b, c, d] in mesh.quads {
+            valid.extend([
+                edge_key(a, b),
+                edge_key(b, c),
+                edge_key(c, d),
+                edge_key(d, a),
+            ]);
+        }
+        let creases: BTreeSet<_> = edges.into_iter().map(|(a, b)| edge_key(a, b)).collect();
+        if !creases.is_subset(&valid) {
+            return Err(Error::InvalidTopology);
+        }
+        self.creases = creases;
+        Ok(())
     }
 
     pub fn explicit_quads(&self) -> Option<&[Quad]> {
@@ -142,6 +171,10 @@ impl Cage {
 
     /// Finite Catmull–Clark refinement for display.
     pub fn preview(&self, levels: u8) -> Result<Mesh, Error> {
+        self.refined(levels).map(|(mesh, _)| mesh)
+    }
+
+    fn refined(&self, levels: u8) -> Result<(Mesh, BTreeSet<EdgeKey>), Error> {
         if levels > 6 {
             return Err(Error::TooManyLevels);
         }
@@ -161,10 +194,11 @@ impl Cage {
             points: self.points.clone(),
             quads,
         };
+        let mut creases = self.creases.clone();
         for _ in 0..levels {
-            mesh = refine(&mesh)?;
+            (mesh, creases) = refine_with_creases(&mesh, &creases)?;
         }
-        Ok(mesh)
+        Ok((mesh, creases))
     }
 }
 
@@ -206,7 +240,21 @@ struct Edge {
 
 // Catmull and Clark (1978), closed-surface refinement rules.
 // https://doi.org/10.1016/0010-4485(78)90110-0
-fn refine(mesh: &Mesh) -> Result<Mesh, Error> {
+fn crease_neighbors(creases: &BTreeSet<EdgeKey>) -> BTreeMap<usize, Vec<usize>> {
+    let mut sharp_neighbors: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for &(a, b) in creases {
+        sharp_neighbors.entry(a).or_default().push(b);
+        sharp_neighbors.entry(b).or_default().push(a);
+    }
+    sharp_neighbors
+}
+
+// Hard-crease masks from DeRose, Kass and Truong (1998).
+// https://graphics.pixar.com/library/Geri/paper.pdf
+fn refine_with_creases(
+    mesh: &Mesh,
+    creases: &BTreeSet<EdgeKey>,
+) -> Result<(Mesh, BTreeSet<EdgeKey>), Error> {
     let point = |id| mesh.points.get(id).copied().ok_or(Error::InvalidTopology);
     let mut rings: Vec<_> = mesh.points.iter().map(|_| VertexRing::default()).collect();
     let mut edges = BTreeMap::<EdgeKey, Edge>::new();
@@ -233,7 +281,26 @@ fn refine(mesh: &Mesh) -> Result<Mesh, Error> {
     }
 
     let mut points = Vec::new();
-    for (&position, ring) in mesh.points.iter().zip(rings) {
+    let sharp_neighbors = crease_neighbors(creases);
+    for (vertex, (&position, ring)) in mesh.points.iter().zip(rings).enumerate() {
+        match sharp_neighbors
+            .get(&vertex)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            &[a, b] => {
+                points.push(scale(
+                    add(scale(position, 6.), add(point(a)?, point(b)?)),
+                    0.125,
+                ));
+                continue;
+            }
+            neighbors if neighbors.len() >= 3 => {
+                points.push(position);
+                continue;
+            }
+            _ => {}
+        }
         if ring.face_count < 3 {
             return Err(Error::InvalidTopology);
         }
@@ -247,12 +314,22 @@ fn refine(mesh: &Mesh) -> Result<Mesh, Error> {
         points.push(scale(weighted, 1.0 / n));
     }
 
+    let mut child_creases = BTreeSet::new();
     for (&(a, b), edge) in &mut edges {
         if edge.face_count != 2 {
             return Err(Error::InvalidTopology);
         }
         edge.refined_index = points.len();
-        points.push(scale(add(add(point(a)?, point(b)?), edge.face_sum), 0.25));
+        let sum = add(point(a)?, point(b)?);
+        if creases.contains(&(a, b)) {
+            points.push(scale(sum, 0.5));
+            child_creases.extend([
+                edge_key(a, edge.refined_index),
+                edge_key(b, edge.refined_index),
+            ]);
+        } else {
+            points.push(scale(add(sum, edge.face_sum), 0.25));
+        }
     }
 
     let edge_index = |a, b| {
@@ -275,7 +352,7 @@ fn refine(mesh: &Mesh) -> Result<Mesh, Error> {
             ]);
         }
     }
-    Ok(Mesh { points, quads })
+    Ok((Mesh { points, quads }, child_creases))
 }
 
 #[cfg(test)]

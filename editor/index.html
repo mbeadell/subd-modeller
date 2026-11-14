@@ -21,7 +21,10 @@
     min-width: 0; overflow: auto; padding: 6px 12px; white-space: nowrap; }
   .toolbar, .inspector { background: #202b36; border-bottom: 1px solid #334453; }
   .toolbar > *, .inspector > * { flex-shrink: 0; }
-  .viewport { position: relative; min-height: 0; overflow: hidden; }
+  .workspace { min-height: 0; display: flex; }
+  #new-dialog { flex: 0 0 min(210px, 43vw); overflow: auto; padding: 12px; background: #202b36; }
+  #new-dialog label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+  .viewport { flex: 1; min-width: 0; position: relative; min-height: 0; overflow: hidden; }
   canvas { display: block; width: 100%; height: 100%; background: #1c2834; touch-action: none; }
   #home-view { position: absolute; top: 10px; right: 76px; width: 30px; height: 30px;
     padding: 4px; font-size: 20px; line-height: 1; }
@@ -36,18 +39,23 @@
   button[aria-pressed="true"] { background: #385367; border-color: #86aec8; }
   button:disabled { opacity: .5; cursor: default; }
   button:hover:not(:disabled) { background: #385367; }
+  #context-actions { position: fixed; z-index: 4; display: grid; gap: 5px; padding: 6px; background: #202d3a; border: 1px solid #465c6e; }
+  #new-dialog form { display: grid; gap: 8px; }
   .icon { font-size: 17px; line-height: 1; }
 </style>
 <main>
   <header>
     <h1>SubD Modeller</h1>
     <details><summary>File</summary><div class="menu">
-      <label>Open cage <input id="open-cage" type="file" accept=".cage"></label>
-      <button id="save">Save cage</button>
-      <select id="step-kind" aria-label="STEP type"><option value="spline-step">Spline STEP</option><option value="faceted-step">Faceted STEP</option></select>
-      <button id="export">Download STEP</button>
+      <button id="new">New…</button>
+      <button id="open">Open…</button>
+      <input id="open-cage" type="file" accept=".cage" hidden>
+      <button id="save">Save</button>
+      <button id="save-as">Save As…</button>
     </div></details>
     <details><summary>Cage</summary><div class="menu">
+      <button id="crease" disabled>Crease edge</button>
+      <button id="crease-ring" disabled>Crease ring</button>
       <button id="reset">Reset cage</button>
     </div></details>
   </header>
@@ -55,14 +63,36 @@
     <button id="undo" disabled><span class="icon" aria-hidden="true">↶</span> Undo</button>
     <label>Move <select id="axis"><option value="">View plane</option><option value="0">X axis</option><option value="1">Y axis</option><option value="2">Z axis</option></select></label>
     <button id="insert-loop" disabled><span class="icon" aria-hidden="true">⊞</span> Insert edge loop</button>
+    <button id="subdivide" disabled>Subdivide</button>
+    <button id="extrude" disabled>Extrude face</button>
+    <label>Depth (mm) <input id="depth" type="number" value="15" step="any"></label>
     <button id="view-mode" type="button" aria-pressed="false">Show SubD</button>
     <button id="show-cage" type="button" aria-pressed="true">Cage frame</button>
     <button id="show-facets" type="button" aria-pressed="true">Facets</button>
     <button id="show-lines" type="button" aria-pressed="false">Surface lines</button>
   </div>
+  <div class="workspace">
   <div class="viewport">
     <canvas tabindex="0" aria-label="3D viewport with draggable cage points"></canvas>
     <button id="home-view" type="button" aria-label="Reset view" title="Reset view">⌂</button>
+  </div>
+  <aside id="new-dialog" aria-label="New primitive" hidden>
+    <form>
+      <label>Primitive <select id="primitive">
+        <option value="cube">Cube</option><option value="cylinder">Cylinder</option>
+        <option value="cone">Cone</option><option value="torus">Torus</option>
+        <option value="slab">Thin slab</option>
+      </select></label>
+      <label id="primitive-axis-label" hidden>Axis <select id="primitive-axis">
+        <option>X</option><option>Y</option><option selected>Z</option>
+      </select></label>
+      <label id="primitive-flip-label" hidden><input id="primitive-flip" type="checkbox"> Flip direction</label>
+      <label>X width (mm) <input class="primitive-size" type="number" step="any" min="0.000001" max="1000000" value="100" required></label>
+      <label>Y depth (mm) <input class="primitive-size" type="number" step="any" min="0.000001" max="1000000" value="100" required></label>
+      <label>Z height (mm) <input class="primitive-size" type="number" step="any" min="0.000001" max="1000000" value="100" required></label>
+      <button type="button" id="cancel-new">Cancel</button><button type="submit">Create</button>
+    </form>
+  </aside>
   </div>
   <div class="inspector" aria-label="Dimensions">
     <label>Reference cage width (mm) <input id="width" type="number" value="100" min="0.000000001" max="1000000000000" step="any" required></label>
@@ -83,6 +113,26 @@
     <span>Right-drag to orbit · Scroll to zoom · Tab for cage/SubD</span>
     <span id="status" role="status"></span>
   </footer>
+  <dialog id="save-dialog">
+    <form method="dialog">
+      <label>Name <input id="file-name" value="untitled" required></label>
+      <label>Format <select id="step-kind">
+        <option value="cage">Editable cage</option><option value="stl">STL mesh</option>
+        <option value="spline-step">Spline STEP</option><option value="faceted-step">Faceted STEP</option>
+      </select></label>
+      <label id="mesh-detail" hidden>Mesh refinement <select id="mesh-level">
+        <option>0</option><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
+      </select></label>
+      <button value="cancel" formnovalidate>Cancel</button><button id="export" value="save">Save</button>
+    </form>
+  </dialog>
+  <div id="context-actions" hidden>
+    <button id="context-crease">Crease edge</button>
+    <button id="context-crease-ring">Crease ring</button>
+    <button id="lock-point">Lock point</button>
+    <button id="select-face">Select face</button>
+    <button id="subdivide-face">Subdivide face</button>
+  </div>
 </main>
 <script>
 const menus = [...document.querySelectorAll("header details")];
@@ -128,7 +178,8 @@ for (const button of [showCage, showFacets, showLines]) {
 
 function moveSelection(delta) {
   for (const index of drag.points) {
-    cage[index] = cage[index].map((value, axis) => value + delta[axis]);
+    if (lockedVertices.has(index)) continue;
+    cage[index] = cage[index].map((value, axis) => value + delta[axis] * (drag.gain ?? 1));
   }
 }
 
@@ -191,6 +242,62 @@ function traceLoop(edge, faces) {
   return strip.size >= 3 ? strip : null;
 }
 
+const creaseButton = document.querySelector("#crease");
+const creaseRing = document.querySelector("#crease-ring");
+let creases = new Set();
+const creasePairs = () => [...creases].map(key => key.split(":").map(Number));
+
+function planarRing(edge) {
+  const [a,b] = edge.map(index => cage[index]);
+  for (let axis = 0; axis < 3; axis++) {
+    const onPlane = index => Math.abs(cage[index][axis] - a[axis]) < 1e-9;
+    if (Math.abs(b[axis] - a[axis]) >= 1e-9) continue;
+    const edges = new Set();
+    for (const face of cageFaces()) {
+      if (face.every(onPlane)) continue;
+      face.forEach((vertex,i) => {
+        const next = face[(i+1)%4];
+        if (onPlane(vertex) && onPlane(next)) edges.add(edgeKey(vertex,next));
+      });
+    }
+    const start = edgeKey(...edge);
+    if (!edges.has(start)) continue;
+    const ring = [start];
+    const pairs = [...edges].map(key => [key, key.split(":").map(Number)]);
+    let current = edge[1], previous = start;
+    while (current !== edge[0]) {
+      const options = pairs.filter(([key,ends]) => key !== previous && ends.includes(current));
+      if (options.length !== 1 || ring.includes(options[0][0])) break;
+      const [key,ends] = options[0];
+      ring.push(key);
+      previous = key;
+      current = ends.find(index => index !== current);
+    }
+    if (current === edge[0] && ring.length >= 3 &&
+        pairs.filter(([,ends]) => ends.includes(current)).length === 2) return ring;
+  }
+  return [];
+}
+
+function toggleCreases(keys) {
+  if (drag || !keys.length) return;
+  const remove = keys.every(key => creases.has(key));
+  if (!remove && surfaceLocks.size) {
+    status.textContent = "Unlock surface junctions before adding creases";
+    return;
+  }
+  remember(cage.map(point => [...point]));
+  for (const key of keys) {
+    if (remove) creases.delete(key);
+    else creases.add(key);
+  }
+  draw();
+  refresh();
+}
+
+creaseButton.onclick = () => { if (selectedEdge) toggleCreases([edgeKey(...selectedEdge)]); };
+creaseRing.onclick = () => { if (selectedEdge) toggleCreases(planarRing(selectedEdge)); };
+
 insertLoop.onclick = () => {
   if (drag || !selectedEdge) return;
   const faces = cageFaces();
@@ -201,7 +308,12 @@ insertLoop.onclick = () => {
   const midpoint = (a, b) => {
     const key = edgeKey(a, b);
     if (!midpoints.has(key)) {
-      midpoints.set(key, cage.length);
+      const middle = cage.length;
+      midpoints.set(key, middle);
+      if (creases.delete(key)) {
+        creases.add(edgeKey(a,middle));
+        creases.add(edgeKey(b,middle));
+      }
       cage.push(cage[a].map((value, axis) => (value + cage[b][axis]) / 2));
     }
     return midpoints.get(key);
@@ -220,7 +332,7 @@ insertLoop.onclick = () => {
 
 let explicitFaces = null;
 let cage = cube.map(point => [...point]);
-let mesh = { points: [], faces: [] };
+let mesh = { points: [], faces: [], cageSize: 0, topology: null };
 const homeYaw = 0.65;
 const homePitch = 0.5;
 let yaw = homeYaw;
@@ -244,9 +356,9 @@ const applyCoordinates = coordinateForm.querySelector("button");
 const vertexLabel = document.querySelector("#vertex-label");
 
 function syncCoordinates() {
-  const point = cage[selected];
-  const enabled = !!point && width.validity.valid && !drag;
-  vertexLabel.textContent = point ? `Vertex ${selected + 1}` : "Select a point to edit its coordinates";
+  const point = selectedVertices.size === 1 ? cage[selected] : undefined;
+  const enabled = !!point && !lockedVertices.has(selected) && width.validity.valid && !drag;
+  vertexLabel.textContent = point ? `Cage vertex ${selected + 1}` : "Select a point to edit its coordinates";
   applyCoordinates.disabled = !enabled;
   for (const [axis, field] of coordinateFields.entries()) {
     field.disabled = !enabled;
@@ -283,6 +395,65 @@ viewMode.onclick = toggleView;
 
 let drag = null;
 let selected = null;
+let selectedFace = null;
+const selectedVertices = new Set();
+let lockedVertices = new Set();
+let surfaceLocks = new Map();
+
+// Catmull–Clark limit stencil for a closed quad vertex. Neighbors and
+// opposite face corners are counted with their incident-face multiplicity.
+function limitStencil(vertex) {
+  const weights = new Map();
+  const add = (index, weight) => weights.set(index, (weights.get(index) ?? 0) + weight);
+  let n = 0;
+  for (const face of cageFaces()) {
+    const corner = face.indexOf(vertex);
+    if (corner < 0) continue;
+    n++;
+    add(face[(corner + 1) % 4], 4);
+    add(face[(corner + 2) % 4], 1);
+  }
+  add(vertex, n * n);
+  for (const [index, weight] of weights) weights.set(index, weight / (n * (n + 5)));
+  return weights;
+}
+
+function limitPosition(stencil) {
+  const point = [0, 0, 0];
+  for (const [index, weight] of stencil) {
+    cage[index].forEach((value, axis) => { point[axis] += value * weight; });
+  }
+  return point;
+}
+
+function holdSurfaceLocks() {
+  const indices = [...surfaceLocks.keys()];
+  const rows = indices.map(index => {
+    const stencil = limitStencil(index);
+    const current = limitPosition(stencil);
+    return [...indices.map(other => stencil.get(other) ?? 0),
+      ...surfaceLocks.get(index).map((value, axis) => value - current[axis])];
+  });
+  const count = indices.length;
+  for (let col = 0; col < count; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < count; row++) {
+      if (Math.abs(rows[row][col]) > Math.abs(rows[pivot][col])) pivot = row;
+    }
+    if (Math.abs(rows[pivot][col]) < 1e-12) return;
+    [rows[col], rows[pivot]] = [rows[pivot], rows[col]];
+    const divisor = rows[col][col];
+    rows[col] = rows[col].map(value => value / divisor);
+    for (let row = 0; row < count; row++) {
+      if (row === col) continue;
+      const factor = rows[row][col];
+      rows[row] = rows[row].map((value, i) => value - factor * rows[col][i]);
+    }
+  }
+  indices.forEach((index, row) => {
+    cage[index] = cage[index].map((value, axis) => value + rows[row][count + axis]);
+  });
+}
 let selectedEdge = null;
 const edgeForm = document.querySelector("#edge-dimension");
 const edgeLength = edgeForm.querySelector("input");
@@ -295,7 +466,7 @@ function edgeVector() {
 
 function syncEdgeDimension() {
   edgeForm.hidden = selectedEdge === null;
-  const enabled = !edgeForm.hidden && selectedEdge && width.validity.valid && !drag;
+  const enabled = !edgeForm.hidden && selectedEdge && !selectedEdge.some(index => lockedVertices.has(index)) && width.validity.valid && !drag;
   applyLength.disabled = edgeLength.disabled = !enabled;
   if (document.activeElement !== edgeLength) {
     edgeLength.value = enabled ? Math.hypot(...edgeVector()) * (width.valueAsNumber / 2) : "";
@@ -348,7 +519,7 @@ const undo = document.querySelector("#undo");
 const history = [];
 
 function remember(points) {
-  history.push({points, faces: explicitFaces});
+  history.push({points, faces: explicitFaces, creases: new Set(creases), locks: new Set(lockedVertices), surfaceLocks: new Map(surfaceLocks), width: width.value});
   if (history.length > 50) history.shift();
   undo.disabled = false;
 }
@@ -418,14 +589,28 @@ function cageFaces() {
 
 const axisColors = ["#ff7777", "#80df99", "#85bbff"];
 
+// Refinement retains the original vertex indices. The first cage.length
+// preview vertices are the junctions of the coarse surface lines.
+function surfaceEditing() {
+  return smoothView && isOn(showLines) && mesh.cageSize === cage.length && mesh.topology === explicitFaces;
+}
+
+function editingPoints() {
+  if (surfaceEditing()) return mesh.points.slice(0, cage.length)
+    .map((point, index) => surfaceLocks.get(index) ?? point);
+  return isOn(showCage) ? cage : [];
+}
+
 function axisHandles() {
-  if (!isOn(showCage)) return [];
   let origin;
-  if (selectedEdge) {
+  if (selectedEdge && isOn(showCage)) {
     const [a, b] = selectedEdge.map(index => cage[index]);
     origin = a.map((value, axis) => (value + b[axis]) / 2);
   } else if (selected !== null) {
-    origin = cage[selected];
+    const source = editingPoints();
+    if (!source.length) return [];
+    const points = [...selectedVertices].map(index => source[index]);
+    origin = [0, 1, 2].map(axis => points.reduce((sum, point) => sum + point[axis], 0) / points.length);
   }
   if (!origin) return [];
   const [x, y] = project(origin);
@@ -482,15 +667,16 @@ function draw() {
     const vx = c[0] - a[0], vy = c[1] - a[1], vz = (c[2] - a[2]) * scale();
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const light = Math.max(0, (-0.3 * nx + 0.45 * ny - 0.8 * nz) / (Math.hypot(nx, ny, nz) || 1));
-    return { points, edges: lines.get(index) || [], depth: points.reduce((sum, point) => sum + point[2], 0), light };
+    return { index, points, edges: lines.get(index) || [], depth: points.reduce((sum, point) => sum + point[2], 0), light };
   });
   faces.sort((a, b) => a.depth - b.depth);
-  for (const {points, light, edges} of faces) {
+  for (const {index, points, light, edges} of faces) {
     context.beginPath();
     points.forEach(([x, y], index) => index ? context.lineTo(x, y) : context.moveTo(x, y));
     context.closePath();
-    if (isOn(showFacets)) {
-      context.fillStyle = `hsl(198 50% ${27 + 44 * light}%)`;
+    const crossing = smoothView && mesh.crossings?.has(index);
+    if (isOn(showFacets) || crossing) {
+      context.fillStyle = crossing ? "#d4474d" : (smoothView ? Math.floor(index / 64) : index) === selectedFace ? "#536d38" : `hsl(198 50% ${27 + 44 * light}%)`;
       context.fill();
       context.strokeStyle = context.fillStyle;
       context.stroke();
@@ -505,45 +691,54 @@ function draw() {
   }
 
   const corners = cage.map(project);
-  const highlighted = selectedEdge ?? (selected === null ? [] : [selected]);
+  const highlighted = selectedEdge ?? (selectedFace === null ? [...selectedVertices] : cageFaces()[selectedFace]);
+
+  extrude.disabled = selectedFace === null;
   const facesForLoop = cageFaces();
+  const ring = selectedEdge ? planarRing(selectedEdge) : [];
+  creaseButton.disabled = !selectedEdge;
+  creaseButton.textContent = selectedEdge && creases.has(edgeKey(...selectedEdge)) ? "Remove crease" : "Crease edge";
+  creaseRing.disabled = !ring.length;
+  creaseRing.textContent = ring.length && ring.every(key => creases.has(key)) ? "Uncrease ring" : "Crease ring";
   const loop = selectedEdge ? traceLoop(selectedEdge, facesForLoop) : null;
   insertLoop.disabled = !loop || facesForLoop.length + loop.size > 126;
+  subdivide.disabled = selectedFace === null && insertLoop.disabled;
   drawOrientation();
-  if (!isOn(showCage)) return;
-  if (loop && !insertLoop.disabled) {
-    context.strokeStyle = "#77dbff";
-    context.lineWidth = 2;
-    for (const [index, side] of loop) {
-      const face = facesForLoop[index];
-      const midpoint = offset => {
-        const a = corners[face[(side + offset) % 4]];
-        const b = corners[face[(side + offset + 1) % 4]];
-        return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      };
+  if (isOn(showCage)) {
+    if (loop && !insertLoop.disabled) {
+      context.strokeStyle = "#77dbff";
+      context.lineWidth = 2;
+      for (const [index, side] of loop) {
+        const face = facesForLoop[index];
+        const midpoint = offset => {
+          const a = corners[face[(side + offset) % 4]];
+          const b = corners[face[(side + offset + 1) % 4]];
+          return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        };
+        context.beginPath();
+        context.moveTo(...midpoint(0));
+        context.lineTo(...midpoint(2));
+        context.stroke();
+      }
+    }
+    context.strokeStyle = "#f9ca83";
+    context.lineWidth = 1.5;
+    for (const [a, b] of cageEdges()) {
+      const active = selectedEdge?.[0] === a && selectedEdge[1] === b;
+      context.strokeStyle = active ? (drag?.axis ? axisColors[Number(drag.axis)] : "#fff") : creases.has(edgeKey(a,b)) ? "#ff8bc7" : "#f9ca83";
+      context.lineWidth = active ? 4 : 1.5;
       context.beginPath();
-      context.moveTo(...midpoint(0));
-      context.lineTo(...midpoint(2));
+      context.moveTo(...corners[a].slice(0, 2));
+      context.lineTo(...corners[b].slice(0, 2));
       context.stroke();
     }
   }
-  context.strokeStyle = "#f9ca83";
-  context.lineWidth = 1.5;
-  for (const [a, b] of cageEdges()) {
-    const active = selectedEdge?.[0] === a && selectedEdge[1] === b;
-    context.strokeStyle = active ? (drag?.axis ? axisColors[Number(drag.axis)] : "#fff") : "#f9ca83";
-    context.lineWidth = active ? 4 : 1.5;
-    context.beginPath();
-    context.moveTo(...corners[a].slice(0, 2));
-    context.lineTo(...corners[b].slice(0, 2));
-    context.stroke();
-  }
-  corners.forEach(([x, y], index) => {
+  editingPoints().map(project).forEach(([x, y], index) => {
     context.beginPath();
     context.arc(x, y, highlighted.includes(index) ? 8 : 5, 0, Math.PI * 2);
-    context.fillStyle = highlighted.includes(index)
+    context.fillStyle = lockedVertices.has(index) ? "#ff5059" : highlighted.includes(index)
       ? (drag?.axis ? axisColors[Number(drag.axis)] : "#fff")
-      : "#ffdc9d";
+      : surfaceEditing() ? "#a9e9ff" : "#ffdc9d";
     context.fill();
   });
   drawAxisHandles();
@@ -570,7 +765,75 @@ width.addEventListener("input", () => {
   syncEdgeDimension();
 });
 
+// Sweep triangle bounds along X, then test separating axes for candidate pairs.
+function crossingFaces(points, triangles) {
+  const subtract = (a, b) => a.map((value, i) => value - b[i]);
+  const cross = ([x,y,z], [u,v,w]) => [y*w-z*v, z*u-x*w, x*v-y*u];
+  const dot = (a,b) => a.reduce((sum,value,i) => sum + value*b[i], 0);
+  const entries = triangles.map(({indices, face}) => {
+    const vertices = indices.map(index => points[index]);
+    const edges = vertices.map((point,i) => subtract(vertices[(i+1)%3], point));
+    const normal = cross(edges[0], edges[1]);
+    const min = [0,1,2].map(i => Math.min(...vertices.map(p => p[i])));
+    const max = [0,1,2].map(i => Math.max(...vertices.map(p => p[i])));
+    return {indices, face, vertices, edges, normal, min, max};
+  }).filter(triangle => Math.hypot(...triangle.normal) > 0);
+  entries.sort((a,b) => a.min[0] - b.min[0]);
+  const crossings = new Set();
+  for (let i=0; i<entries.length; i++) {
+    const a = entries[i];
+    for (let j=i+1; j<entries.length && entries[j].min[0] <= a.max[0]; j++) {
+      const b = entries[j];
+      if (a.face === b.face || a.indices.some(index => b.indices.includes(index)) ||
+          a.min.some((value,k) => value > b.max[k] || b.min[k] > a.max[k])) continue;
+      const axes = [a.normal,b.normal];
+      for (const edge of a.edges) {
+        axes.push(cross(a.normal, edge));
+        for (const other of b.edges) axes.push(cross(edge, other));
+      }
+      for (const edge of b.edges) axes.push(cross(b.normal, edge));
+      const separated = axes.some(axis => {
+        if (!axis.some(Boolean)) return false;
+        const p = a.vertices.map(vertex => dot(subtract(vertex,a.vertices[0]),axis));
+        const q = b.vertices.map(vertex => dot(subtract(vertex,a.vertices[0]),axis));
+        const tolerance = Math.max(...p.map(Math.abs), ...q.map(Math.abs)) * 1e-12;
+        return Math.max(...p) < Math.min(...q) - tolerance ||
+          Math.max(...q) < Math.min(...p) - tolerance;
+      });
+      if (!separated) { crossings.add(a.face); crossings.add(b.face); }
+    }
+  }
+  return crossings;
+}
+
+function checkPreview() {
+  const triangles = mesh.faces.flatMap(([a,b,c,d], face) =>
+    [{indices:[a,b,c],face},{indices:[a,c,d],face}]);
+  mesh.crossings = crossingFaces(mesh.points, triangles);
+  status.textContent = mesh.crossings.size ? `${mesh.crossings.size} intersecting preview faces` : "";
+}
+
+async function checkStl(blob) {
+  const data = new DataView(await blob.arrayBuffer());
+  const points = [], triangles = [], indicesByPosition = new Map();
+  for (let face=0; face<data.getUint32(80,true); face++) {
+    const indices = [0,1,2].map(i => {
+      const offset = 96 + face*50 + i*12;
+      const point = [0,4,8].map(axis => data.getFloat32(offset+axis,true));
+      const key = point.join(",");
+      if (!indicesByPosition.has(key)) {
+        indicesByPosition.set(key,points.length);
+        points.push(point);
+      }
+      return indicesByPosition.get(key);
+    });
+    triangles.push({indices,face});
+  }
+  return crossingFaces(points,triangles).size;
+}
+
 async function refresh() {
+  if (surfaceLocks.size) holdSurfaceLocks();
   revision++;
   if (pending) return;
   pending = true;
@@ -578,9 +841,9 @@ async function refresh() {
   do {
     requested = revision;
     try {
-      const response = await fetch("/preview", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({points: cage, quads: explicitFaces}) });
+      const response = await fetch("/preview", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({points: cage, quads: explicitFaces, creases: creasePairs()}) });
       if (!response.ok) throw new Error("Preview failed");
-      const next = { points: [], faces: [] };
+      const next = { points: [], faces: [], cageSize: cage.length, topology: explicitFaces };
       for (const line of (await response.text()).trim().split("\n")) {
         const [kind, ...fields] = line.split(" ");
         if (kind === "v") next.points.push(fields.map(Number));
@@ -589,13 +852,94 @@ async function refresh() {
       if (requested !== revision) continue;
       mesh = next;
       updateDimensions();
-      status.textContent = "";
+      if (!drag?.points) checkPreview();
       draw();
     } catch (error) {
       status.textContent = error.message;
     }
   } while (requested !== revision);
   pending = false;
+}
+
+const contextActions = document.querySelector("#context-actions");
+const lockPoint = document.querySelector("#lock-point");
+const selectFaceAction = document.querySelector("#select-face");
+const subdivideFaceAction = document.querySelector("#subdivide-face");
+const contextCrease = document.querySelector("#context-crease");
+const contextCreaseRing = document.querySelector("#context-crease-ring");
+let contextVertex, contextFace, contextEdge;
+
+contextCrease.onclick = () => {
+  contextActions.hidden = true;
+  if (contextEdge) toggleCreases([edgeKey(...contextEdge)]);
+};
+contextCreaseRing.onclick = () => {
+  contextActions.hidden = true;
+  if (contextEdge) toggleCreases(planarRing(contextEdge));
+};
+
+function selectContextFace() {
+  selected = null;
+  selectedVertices.clear();
+  selectedEdge = null;
+  selectedFace = contextFace;
+  contextActions.hidden = true;
+  draw();
+}
+
+lockPoint.onclick = () => {
+  if (surfaceEditing() && creases.size && !lockedVertices.has(contextVertex)) {
+    status.textContent = "Surface locks require a smooth cage";
+    contextActions.hidden = true;
+    return;
+  }
+  remember(cage.map(point => [...point]));
+  if (lockedVertices.delete(contextVertex)) {
+    surfaceLocks.delete(contextVertex);
+  } else {
+    lockedVertices.add(contextVertex);
+    if (surfaceEditing()) surfaceLocks.set(contextVertex, limitPosition(limitStencil(contextVertex)));
+  }
+  contextActions.hidden = true;
+  draw();
+};
+selectFaceAction.onclick = selectContextFace;
+subdivideFaceAction.onclick = () => {
+  selectContextFace();
+  editFace(false);
+};
+document.addEventListener("pointerdown", event => {
+  if (!contextActions.contains(event.target)) contextActions.hidden = true;
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") contextActions.hidden = true;
+});
+
+function openContextActions(event) {
+  const bounds = canvas.getBoundingClientRect();
+  const x = event.clientX - bounds.left, y = event.clientY - bounds.top;
+  contextVertex = editingPoints().map((point, index) => {
+    const [px, py, depth] = project(point);
+    return {index, depth, distance: Math.hypot(px - x, py - y)};
+  }).filter(hit => hit.distance <= 13)
+    .sort((a,b) => a.distance - b.distance || b.depth - a.depth)[0]?.index;
+  contextFace = pickFace(x, y);
+  contextEdge = contextVertex === undefined && isOn(showCage) ? pickEdge(x, y) : null;
+  if (contextVertex === undefined && contextFace === null && !contextEdge) return;
+  contextCrease.hidden = !contextEdge;
+  contextCrease.textContent = contextEdge && creases.has(edgeKey(...contextEdge))
+    ? "Remove crease" : "Crease edge";
+  const ring = contextEdge ? planarRing(contextEdge) : [];
+  contextCreaseRing.hidden = !ring.length;
+  contextCreaseRing.textContent = ring.length && ring.every(key => creases.has(key))
+    ? "Uncrease ring" : "Crease ring";
+  lockPoint.hidden = contextVertex === undefined;
+  lockPoint.textContent = lockedVertices.has(contextVertex) ? "Unlock point" : "Lock point";
+  selectFaceAction.hidden = subdivideFaceAction.hidden = contextFace === null;
+  contextActions.hidden = false;
+  contextActions.style.left = Math.max(0, Math.min(event.clientX, window.innerWidth - contextActions.offsetWidth)) + "px";
+  contextActions.style.top = Math.max(0, Math.min(event.clientY, window.innerHeight - contextActions.offsetHeight)) + "px";
+  contextActions.querySelector("button:not([hidden])").focus();
 }
 
 canvas.addEventListener("contextmenu", event => event.preventDefault());
@@ -614,29 +958,44 @@ canvas.addEventListener("keydown", event => {
 });
 
 canvas.addEventListener("pointerdown", event => {
-  if (drag || ![0, 2].includes(event.button)) return;
+  if (drag || ![0, 2].includes(event.button) || (newPreview && event.button !== 2)) return;
   canvas.focus({preventScroll: true});
   const bounds = canvas.getBoundingClientRect();
   const x = event.clientX - bounds.left, y = event.clientY - bounds.top;
   const handle = event.button === 0 ? pickAxisHandle(x, y) : undefined;
-  const hits = (event.button === 0 && isOn(showCage) ? cage : []).map((point, index) => {
+  const hits = (event.button === 0 ? editingPoints() : []).map((point, index) => {
     const [px, py, depth] = project(point);
     return {index, depth, distance: Math.hypot(x - px, y - py)};
   }).filter(hit => hit.distance <= 13);
   hits.sort((a, b) => a.distance - b.distance || b.depth - a.depth);
   if (event.button === 0 && handle === undefined) {
-    selected = hits[0]?.index ?? null;
+    const vertex = hits[0]?.index;
+    if (!event.shiftKey || vertex === undefined) selectedVertices.clear();
+    if (vertex !== undefined) {
+      if (event.shiftKey && selectedVertices.has(vertex)) selectedVertices.delete(vertex);
+      else selectedVertices.add(vertex);
+    }
+    selected = [...selectedVertices].at(-1) ?? null;
     selectedEdge = selected === null && isOn(showCage) ? pickEdge(x, y) : null;
-    if (selected === null) {
+    selectedFace = selected === null && !selectedEdge && isOn(showCage) && !event.shiftKey ? pickFace(x, y) : null;
+    if (selected === null || event.shiftKey) {
       draw();
       return;
     }
   }
   drag = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
+  if (event.button === 2) drag.orbitStart = [event.clientX, event.clientY];
   if (event.button === 0) {
     drag.axis = handle === undefined ? axis.value : String(handle);
-    drag.points = selectedEdge ?? [selected];
+    drag.points = selectedEdge?.some(index => lockedVertices.has(index)) ? [] :
+      (selectedEdge ?? [...selectedVertices]).filter(index => !lockedVertices.has(index));
     drag.before = cage.map(point => [...point]);
+    // At a Catmull–Clark limit vertex the original control point has
+    // coefficient n/(n+5). Compensate for that influence for a single handle.
+    if (surfaceEditing() && !creases.size && !selectedEdge && drag.points.length === 1) {
+      const valence = cageFaces().filter(face => face.includes(selected)).length;
+      drag.gain = (valence + 5) / valence;
+    }
   }
   canvas.setPointerCapture(event.pointerId);
   draw();
@@ -648,8 +1007,12 @@ canvas.addEventListener("pointermove", event => {
   drag.x = event.clientX;
   drag.y = event.clientY;
   if (!drag.points) {
+    if (!drag.orbited && Math.hypot(event.clientX - drag.orbitStart[0], event.clientY - drag.orbitStart[1]) < 4) return;
+    drag.orbited = true;
     yaw += dx * 0.01;
     pitch = Math.max(-1.5, Math.min(1.5, pitch + dy * 0.01));
+  } else if (!drag.points.length) {
+    return;
   } else if (drag.axis !== "") {
     const index = Number(drag.axis);
     const [x, y] = camera([0, 1, 2].map(i => Number(i === index)));
@@ -676,18 +1039,31 @@ canvas.addEventListener("pointermove", event => {
   draw();
 });
 
+canvas.addEventListener("pointerup", event => {
+  if (!newPreview && event.button === 2 && event.pointerId === drag?.pointer && !drag.orbited) {
+    openContextActions(event);
+  }
+});
 canvas.addEventListener("lostpointercapture", () => {
-  if (drag?.changed) remember(drag.before);
+  const changed = drag?.changed;
+  if (changed) remember(drag.before);
   drag = null;
+  if (changed) refresh();
   draw();
 });
 axis.addEventListener("change", draw);
 undo.onclick = () => {
-  if (drag || !history.length) return;
+  if (newPreview || drag || !history.length) return;
   const previous = history.pop();
   cage = previous.points;
   explicitFaces = previous.faces;
+  creases = previous.creases;
+  lockedVertices = previous.locks;
+  surfaceLocks = previous.surfaceLocks;
+  width.value = previous.width;
   selected = null;
+  selectedVertices.clear();
+  selectedFace = null;
   selectedEdge = null;
   undo.disabled = !history.length;
   draw();
@@ -704,12 +1080,215 @@ document.querySelector("#reset").onclick = () => {
   if (drag) return;
   remember(cage);
   selected = null;
+  selectedVertices.clear();
+  selectedFace = null;
   selectedEdge = null;
   explicitFaces = null;
+  creases.clear();
+  lockedVertices.clear();
+  surfaceLocks.clear();
   cage = cube.map(point => [...point]);
   draw();
   refresh();
 };
+const subdivide = document.querySelector("#subdivide");
+const extrude = document.querySelector("#extrude");
+
+function pickFace(x, y) {
+  let hit = null;
+  let nearest = -Infinity;
+  const useSurface = smoothView && mesh.cageSize === cage.length && mesh.topology === explicitFaces;
+  const points = (useSurface ? mesh.points : cage).map(project);
+  (useSurface ? mesh.faces : cageFaces()).forEach((face, index) => {
+    const corners = face.map(vertex => points[vertex]);
+    for (const [a, b, c] of [[corners[0], corners[1], corners[2]], [corners[0], corners[2], corners[3]]]) {
+      const cross = (p, q) => p[0] * q[1] - p[1] * q[0];
+      const ab = [b[0]-a[0], b[1]-a[1]], ac = [c[0]-a[0], c[1]-a[1]];
+      const offset = [x-a[0], y-a[1]], area = cross(ab, ac);
+      if (Math.abs(area) < 1e-8) continue;
+      const u = cross(offset, ac) / area, v = cross(ab, offset) / area;
+      if (u < 0 || v < 0 || u + v > 1) continue;
+      const depth = a[2] + u * (b[2]-a[2]) + v * (c[2]-a[2]);
+      if (depth > nearest) { nearest = depth; hit = useSurface ? Math.floor(index / 64) : index; }
+    }
+  });
+  return hit;
+}
+
+function editFace(extruding) {
+  if (drag || selectedFace === null) return;
+  const faces = cageFaces();
+  if (faces.length + 4 > 126 || cage.length + 4 > 128) {
+    status.textContent = "Cage topology limit reached";
+    return;
+  }
+  const face = faces[selectedFace];
+  const points = face.map(index => cage[index]);
+  const [a,b,c,d] = points;
+  const [x,y,z] = c.map((value,i) => value-a[i]);
+  const [u,v,w] = d.map((value,i) => value-b[i]);
+  const normal = [y*w-z*v,z*u-x*w,x*v-y*u];
+  const length = Math.hypot(...normal);
+  const depth = document.querySelector("#depth").valueAsNumber / (width.valueAsNumber / 2);
+  if (extruding && (!(length > 0) || !Number.isFinite(depth) || depth === 0)) {
+    status.textContent = "Enter a nonzero depth for a face with a defined normal";
+    return;
+  }
+  const center = [0,1,2].map(axis => points.reduce((sum,p) => sum+p[axis],0)/4);
+  const newPoints = points.map(point => point.map((value, axis) => extruding
+    ? value + normal[axis] * (depth / length) : (value + center[axis]) / 2));
+  if (newPoints.some(point => point.some(value => !(Math.abs(value) <= 1e12)))) {
+    status.textContent = "Face edit is outside the cage range";
+    return;
+  }
+  remember(cage.map(point => [...point]));
+  const cap = newPoints.map((_, index) => cage.length + index);
+  cage.push(...newPoints);
+  const sides = face.map((vertex,i) => {
+    const next = (i+1)%4;
+    return [vertex, face[next], cap[next], cap[i]];
+  });
+  explicitFaces = faces.slice();
+  explicitFaces.splice(selectedFace, 1, cap, ...sides);
+  draw();
+  refresh();
+}
+
+subdivide.onclick = () => selectedEdge ? insertLoop.click() : editFace(false);
+extrude.onclick = () => editFace(true);
+
+function primitiveMesh(kind) {
+  if (kind === "cube") return {points: cube.map(point => [...point]), quads: null};
+  if (kind === "slab") return {points: cube.map(([x,y,z]) => [x,y,z*0.025]), quads: null};
+  const points = [], quads = [];
+  if (kind === "torus") {
+    const segments = 8, sides = 6;
+    for (let i=0; i<segments; i++) {
+      const a = 2*Math.PI*i/segments;
+      for (let j=0; j<sides; j++) {
+        const b = 2*Math.PI*j/sides;
+        const radius = 0.68+0.32*Math.cos(b);
+        points.push([radius*Math.cos(a), radius*Math.sin(a), 0.32*Math.sin(b)]);
+        const next = (i+1)%segments, side = (j+1)%sides;
+        quads.push([i*sides+j,next*sides+j,next*sides+side,i*sides+side]);
+      }
+    }
+  } else {
+    // Square caps with eight boundary points and one interior point.
+    const ring = Array.from({length:8}, (_, i) => {
+      const angle = i*Math.PI/4;
+      return [Math.cos(angle),Math.sin(angle)];
+    });
+    const heights = [-1, -0.8, 0.8, 1];
+    const radii = heights.map(z => kind === "cone" ? 1 - 0.35 * (z + 1) : 1);
+    radii.forEach((radius,i) => ring.forEach(([x,y]) => points.push([x*radius,y*radius,heights[i]])));
+    for (let row=0; row<3; row++) {
+      for (let i=0; i<8; i++) {
+        const a = row*8+i, b = row*8+(i+1)%8;
+        quads.push([a,b,b+8,a+8]);
+      }
+    }
+    for (const [start,z] of [[0,-1],[24,1]]) {
+      const center = points.length;
+      points.push([0,0,z]);
+      for (let i=0; i<8; i+=2) {
+        const face = [center,start+i,start+(i+1)%8,start+(i+2)%8];
+        quads.push(start === 0 ? face.reverse() : face);
+      }
+    }
+  }
+  return {points, quads};
+}
+
+function orientPrimitive([x, y, z], axis, flip) {
+  // Rotate by 180° to flip the cone while preserving face winding.
+  if (flip) { x = -x; z = -z; }
+  if (axis === "X") return [z, y, -x];
+  if (axis === "Y") return [x, z, -y];
+  return [x, y, z];
+}
+
+const primitive = document.querySelector("#primitive");
+const primitiveAxis = document.querySelector("#primitive-axis");
+const primitiveFlip = document.querySelector("#primitive-flip");
+function syncPrimitiveOrientation() {
+  document.querySelector("#primitive-axis-label").hidden = primitive.value === "cube";
+  document.querySelector("#primitive-flip-label").hidden = primitive.value !== "cone";
+}
+const newDialog = document.querySelector("#new-dialog");
+const primitiveForm = newDialog.querySelector("form");
+const editorControls = document.querySelectorAll("header, .toolbar, .inspector");
+let newPreview = null;
+
+document.querySelector("#new").onclick = () => {
+  if (drag || newPreview) return;
+  newPreview = { cage, explicitFaces, mesh, width: width.value, selected,
+    vertices: [...selectedVertices], selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases };
+  selected = selectedEdge = selectedFace = null;
+  selectedVertices.clear();
+  lockedVertices = new Set();
+  creases = new Set();
+  surfaceLocks = new Map();
+  for (const control of editorControls) control.inert = true;
+  newDialog.hidden = false;
+  previewPrimitive();
+  primitive.focus();
+};
+
+function previewPrimitive() {
+  syncPrimitiveOrientation();
+  if (!primitiveForm.checkValidity()) return;
+  const model = primitiveMesh(primitive.value);
+  const axis = primitive.value === "cube" ? "Z" : primitiveAxis.value;
+  const flip = primitive.value === "cone" && primitiveFlip.checked;
+  model.points = model.points.map(point => orientPrimitive(point, axis, flip));
+  const dimensionsMm = [...newDialog.querySelectorAll(".primitive-size")].map(input => input.valueAsNumber);
+  const extents = dimensionsMm.map((_, axis) => {
+    const coordinates = model.points.map(point => point[axis]);
+    return Math.max(...coordinates) - Math.min(...coordinates);
+  });
+  width.value = dimensionsMm[0];
+  cage = model.points.map(point => point.map((value, axis) =>
+    value * dimensionsMm[axis] / extents[axis] / (dimensionsMm[0] / 2)));
+  explicitFaces = model.quads;
+  mesh = { points: [], faces: [], cageSize: 0, topology: null };
+  draw();
+  refresh();
+}
+
+function finishPrimitive(create) {
+  if (!newPreview) return;
+  const previous = newPreview;
+  newPreview = null;
+  if (create) {
+    history.push({points: previous.cage, faces: previous.explicitFaces,
+      locks: previous.lockedVertices, creases: previous.creases, surfaceLocks: previous.surfaceLocks, width: previous.width});
+    if (history.length > 50) history.shift();
+    undo.disabled = false;
+    document.querySelector("#file-name").value = "untitled";
+  } else {
+    ({cage, explicitFaces, mesh, selected, selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases} = previous);
+    width.value = previous.width;
+    for (const vertex of previous.vertices) selectedVertices.add(vertex);
+  }
+  newDialog.hidden = true;
+  for (const control of editorControls) control.inert = false;
+  updateDimensions();
+  draw();
+  refresh();
+  canvas.focus({preventScroll: true});
+}
+
+primitiveForm.addEventListener("input", previewPrimitive);
+primitiveForm.onsubmit = event => {
+  event.preventDefault();
+  finishPrimitive(true);
+};
+document.querySelector("#cancel-new").onclick = () => finishPrimitive(false);
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && newPreview) finishPrimitive(false);
+});
+
 function download(blob, name) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -719,11 +1298,25 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-save.onclick = () => {
+const saveDialog = document.querySelector("#save-dialog");
+const fileName = document.querySelector("#file-name");
+const fileKind = document.querySelector("#step-kind");
+const detail = document.querySelector("#mesh-detail");
+fileKind.onchange = () => { detail.hidden = fileKind.value !== "stl"; };
+document.querySelector("#open").onclick = () => document.querySelector("#open-cage").click();
+document.querySelector("#save-as").onclick = () => {
+  saveDialog.returnValue = "";
+  saveDialog.showModal();
+};
+
+function saveCage() {
   download(new Blob([`${explicitFaces ? "subd-quads 1" : cage.length === 8 ? "subd-cube 2" : "subd-sections 1"}\nwidth-mm ${width.valueAsNumber}\n`,
     ...cage.map(point => point.join(" ") + "\n"),
-    ...(explicitFaces || []).map(face => "q " + face.join(" ") + "\n")]), "edited.cage");
-};
+    ...(explicitFaces || []).map(face => "q " + face.join(" ") + "\n"),
+    ...creasePairs().map(edge => "c " + edge.join(" ") + "\n")]), `${fileName.value.trim() || "untitled"}.cage`);
+}
+
+save.onclick = saveCage;
 
 document.querySelector("#open-cage").onchange = async event => {
   const input = event.target;
@@ -741,7 +1334,9 @@ document.querySelector("#open-cage").onchange = async event => {
     const mm = scaleLine?.startsWith("width-mm ") ? Number(scaleLine.slice(9)) : NaN;
     const quads = explicit ? lines.filter(line => line.startsWith("q "))
       .map(line => line.slice(2).trim().split(/\s+/).map(Number)) : null;
-    const points = lines.filter(line => !explicit || !line.startsWith("q "))
+    const loadedCreases = lines.filter(line => line.startsWith("c "))
+      .map(line => line.slice(2).trim().split(/\s+/).map(Number));
+    const points = lines.filter(line => !line.startsWith("c ") && (!explicit || !line.startsWith("q ")))
       .map(line => line.trim().split(/\s+/).map(Number));
     if (!(mm >= 1e-9 && mm <= 1e12) || points.length < 8 || points.length > (explicit ? 128 : 32) ||
         (!explicit && (points.length % 4 || (header !== "subd-sections 1" && points.length !== 8))) ||
@@ -750,13 +1345,23 @@ document.querySelector("#open-cage").onchange = async event => {
         points.some(point => point.length !== 3 || point.some(value => !(Math.abs(value) <= 1e12)))) {
       throw new Error("Invalid cage file");
     }
+    if (loadedCreases.some(edge => edge.length !== 2 || edge.some(index =>
+        !Number.isInteger(index) || index < 0 || index >= points.length) || edge[0] === edge[1])) {
+      throw new Error("Invalid crease endpoints");
+    }
     if (drag) throw new Error("Finish dragging before opening a cage");
     history.length = 0;
     undo.disabled = true;
     cage = points;
+    lockedVertices.clear();
+    surfaceLocks.clear();
     explicitFaces = quads;
+    creases = new Set(loadedCreases.map(edge => edgeKey(...edge)));
     width.value = mm;
+    fileName.value = file.name.replace(/\.cage$/i, "");
     selected = null;
+    selectedVertices.clear();
+    selectedFace = null;
     selectedEdge = null;
     updateDimensions();
     draw();
@@ -768,17 +1373,24 @@ document.querySelector("#open-cage").onchange = async event => {
   }
 };
 
-exportButton.onclick = async () => {
-  const kind = document.querySelector("#step-kind").value;
+saveDialog.onclose = async () => {
+  if (saveDialog.returnValue !== "save" || !width.validity.valid || exporting) return;
+  const kind = fileKind.value;
+  if (kind === "cage") { saveCage(); return; }
+  const name = fileName.value.trim() || "untitled";
   exporting = true;
   updateDimensions();
   try {
     const response = await fetch("/" + kind, {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({points: cage, quads: explicitFaces, width: width.valueAsNumber})
+      body: JSON.stringify({points: cage, quads: explicitFaces, creases: creasePairs(), width: width.valueAsNumber, level: Number(document.querySelector("#mesh-level").value)})
     });
-    if (!response.ok) throw new Error("STEP export failed");
-    download(await response.blob(), `subd-${kind.replace("-step", "")}.step`);
+    if (!response.ok) throw new Error(response.status === 422
+      ? (await response.text()).trim() : `Export failed (HTTP ${response.status})`);
+    const blob = await response.blob();
+    if (kind === "stl" && await checkStl(blob) &&
+        !window.confirm("This STL contains intersecting triangles. Download anyway?")) return;
+    download(blob, `${name}.${kind === "stl" ? "stl" : "step"}`);
   } catch (error) {
     status.textContent = error.message;
   } finally {

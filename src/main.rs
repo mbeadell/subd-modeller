@@ -1,4 +1,5 @@
 mod step;
+mod stl;
 
 use std::error::Error;
 use std::fs::File;
@@ -12,6 +13,7 @@ const USAGE: &str = "Usage:
   subd-prototype new CAGE [CAGE_WIDTH_MM]
   subd-prototype set CAGE VERTEX X Y Z OUTPUT_CAGE
   subd-prototype preview CAGE LEVEL OUTPUT_OBJ
+  subd-prototype stl CAGE LEVEL OUTPUT_STL
   subd-prototype spline-step CAGE OUTPUT_STEP
   subd-prototype step CAGE LEVEL OUTPUT_STEP";
 
@@ -38,6 +40,9 @@ fn save(cage: &Cage, width_mm: Option<f64>, path: &str) -> Result<(), Box<dyn Er
         for [a, b, c, d] in quads {
             writeln!(writer, "q {a} {b} {c} {d}")?;
         }
+    }
+    for &(a, b) in cage.creases() {
+        writeln!(writer, "c {a} {b}")?;
     }
     writer.flush()?;
     Ok(())
@@ -69,8 +74,22 @@ fn load(path: &str) -> Result<(Cage, Option<f64>), Box<dyn Error>> {
     };
     let mut points = Vec::new();
     let mut quads = Vec::new();
+    let mut creases = Vec::new();
     for line in lines {
         let line = line?;
+        if let Some(edge) = line.strip_prefix("c ") {
+            if creases.len() == 252 {
+                return Err("too many creases".into());
+            }
+            let mut indices = edge.split_whitespace();
+            let a = indices.next().ok_or("missing crease endpoint")?.parse()?;
+            let b = indices.next().ok_or("missing crease endpoint")?.parse()?;
+            if indices.next().is_some() {
+                return Err("expected two crease endpoints".into());
+            }
+            creases.push((a, b));
+            continue;
+        }
         if let Some(face) = line.strip_prefix("q ").filter(|_| explicit) {
             if quads.len() == 126 {
                 return Err("too many quad faces".into());
@@ -98,13 +117,16 @@ fn load(path: &str) -> Result<(Cage, Option<f64>), Box<dyn Error>> {
         }
         points.push(point);
     }
-    if explicit {
-        return Ok((Cage::from_quads(points, quads)?, width_mm));
-    }
-    if !sectioned && points.len() != 8 {
-        return Err("cube cages require eight control points".into());
-    }
-    Ok((Cage::from_sections(points)?, width_mm))
+    let mut cage = if explicit {
+        Cage::from_quads(points, quads)?
+    } else {
+        if !sectioned && points.len() != 8 {
+            return Err("cube cages require eight control points".into());
+        }
+        Cage::from_sections(points)?
+    };
+    cage.set_creases(creases)?;
+    Ok((cage, width_mm))
 }
 
 fn output(path: impl AsRef<Path>) -> std::io::Result<BufWriter<File>> {
@@ -136,6 +158,16 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
                 writeln!(writer, "f {} {} {} {}", a + 1, b + 1, c + 1, d + 1)?;
             }
             writer.flush()?;
+            Ok(())
+        }
+        [command, input, level, path] if command == "stl" => {
+            let (cage, width) = load(input)?;
+            let width = width.ok_or("STL export requires a cage width in millimetres")?;
+            let level = level.parse()?;
+            if level > 5 {
+                return Err("STL supports refinement levels 0 through 5".into());
+            }
+            stl::write(cage.preview(level)?, width * 0.5, output(path)?)?;
             Ok(())
         }
         [command, input, path] if command == "spline-step" => {

@@ -5,13 +5,19 @@ modelling workflows with SolidCraft. The Rust library evaluates previews and
 builds bicubic patches. The browser editor uses a local Python server to call
 the Rust CLI.
 
-Current version: **0.2.0**.
+Current version: **0.3.0**.
 
-<img width="1465" height="893" alt="image" src="https://github.com/user-attachments/assets/545c79f5-5347-4710-8ac9-ef00b11add8c" />
+## What's new in v0.3.0
 
-<img width="1467" height="792" alt="image" src="https://github.com/user-attachments/assets/fd949b7a-6d3b-4897-827d-59ce3ee9f510" />
-
-<img width="1463" height="792" alt="image" src="https://github.com/user-attachments/assets/2be027a1-5c0b-497b-aa9f-b2bb7613128e" />
+- File menu with New, Open, Save, and Save As. Preview a cube, cylinder,
+  truncated cone, torus, or thin slab at your chosen XYZ size before creating it.
+- Shift-click points to move them together. Edit surface-line junctions in
+  SubD view, lock them in XYZ, and right-click faces to select or subdivide them.
+  Face extrusion adds protrusions.
+- Binary STL export with adjustable refinement. The editor highlights
+  detected preview crossings and warns before downloading a crossing STL.
+- Hard creases on edges and planar rings. STL and Faceted STEP preserve them.
+  Spline STEP supports closed, unbranched crease rings.
 
 ## Run the editor
 
@@ -50,6 +56,18 @@ The CLI also accepts saved cages. Use a fresh output path.
 cargo run -- spline-step edited.cage edited-spline.step
 cargo run -- step edited.cage 2 edited-faceted.step
 ```
+
+## Try the creased cylinder
+
+1. Open [creased-cylinder.cage](examples/creased-cylinder.cage) using **File → Open**.
+2. Click the viewport and press **Tab** to see the sharp top rim and rounded bottom.
+3. Choose **File → Save As → Spline STEP** and import the result into SolidCraft.
+   Choose **STL mesh** instead for Cura and select the mesh refinement level.
+   STL coordinates are in millimetres by convention.
+
+To create a crease yourself, right-click the middle of a visible cage edge and
+choose **Crease edge** or **Crease ring**. Use STL or Faceted STEP for open-ended
+or branched creases. Surface junction locks currently require a smooth cage.
 
 ## Geometry and provenance
 
