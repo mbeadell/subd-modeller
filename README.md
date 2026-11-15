@@ -95,3 +95,22 @@ shell with a cross-plane loop also imported as one closed spline solid.
 Explore mirror planes for quad cages and add crease weights to the geometry
 library. A future native SolidCraft feature would store the cage and regenerate
 the CAD body when it changes.
+
+### Raised-cap regression case
+
+[Creased cylinder V2](examples/creased-cylinder-V2.cage) has a raised cap and
+an edited sidewall. It previously reproduced four `FlatCorner` errors
+during a SolidCraft through-cut where two patch sides followed the same rim.
+Spline export now adjusts the shared boundary control points at those corners.
+Both spline and faceted exports pass the cut on this fixture.
+
+From the repository root, run the case with a fresh output path:
+
+```sh
+cargo run -- spline-step examples/creased-cylinder-V2.cage v2.step
+solidcraft-cli eval examples/creased-cylinder-V2-cut.json --in v2.step
+```
+
+The spline regression passes when the cut finishes with one closed body and
+a smaller volume than the input, while the export preserves the raised cap
+and its sharp rim.

@@ -287,8 +287,88 @@ impl Cage {
                 }),
         );
         patches.sort_by_key(|patch| patch.face);
+        if !self.creases().is_empty() {
+            let (rim_mesh, rim_edges) = self.refined(3)?;
+            regularize_rim_corners(&rim_mesh, &rim_edges, &mut patches)?;
+        }
         Ok(patches)
     }
+}
+
+// Where both sides of a fitted corner follow the same rim, spread their
+// tangent handles slightly toward the patch interior. Apply each edit to
+// both incident patches so the STEP edge remains shared.
+fn regularize_rim_corners(
+    mesh: &crate::Mesh,
+    rim_edges: &std::collections::BTreeSet<crate::EdgeKey>,
+    patches: &mut [SurfacePatch],
+) -> Result<(), Error> {
+    use crate::{add, scale};
+    let mut edits = BTreeMap::new();
+    let corners = [(0, 0), (0, 3), (3, 3), (3, 0)];
+    let handle =
+        |(r, c): (usize, usize), (s, t): (usize, usize)| ((2 * r + s) / 3, (2 * c + t) / 3);
+    let get = |net: &[[Point; 4]; 4], (r, c)| {
+        net.get(r)
+            .and_then(|row: &[Point; 4]| row.get(c))
+            .copied()
+            .ok_or(Error::InvalidTopology)
+    };
+    for patch in patches.iter() {
+        let face = mesh.quads.get(patch.face).ok_or(Error::InvalidTopology)?;
+        for (i, (&vertex, corner)) in face.iter().zip(corners).enumerate() {
+            let next = (i + 1) % 4;
+            let previous = (i + 3) % 4;
+            if ![next, previous].iter().all(|&side| {
+                face.get(side)
+                    .is_some_and(|&neighbor| rim_edges.contains(&crate::edge_key(vertex, neighbor)))
+            }) {
+                continue;
+            }
+            let opposite = (i + 2) % 4;
+            let net = &patch.control_points;
+            let origin = get(net, corner)?;
+            let relative = |p| Ok::<_, Error>(add(get(net, p)?, scale(origin, -1.)));
+            let coord = |j| corners.get(j).copied().ok_or(Error::InvalidTopology);
+            let a = relative(handle(corner, coord(next)?))?;
+            let b = relative(handle(corner, coord(previous)?))?;
+            let dot = |a: Point, b: Point| a.into_iter().zip(b).map(|(x, y)| x * y).sum::<f64>();
+            let length = |p| dot(p, p).sqrt();
+            let (la, lb) = (length(a), length(b));
+            if la == 0. || lb == 0. || dot(a, b) > -0.999999 * la * lb {
+                continue;
+            }
+            let interior = relative(coord(opposite)?)?;
+            let axis = scale(a, 1. / la);
+            let inward = add(interior, scale(axis, -dot(interior, axis)));
+            let span = length(inward);
+            if span == 0. {
+                continue;
+            }
+            for (side, distance) in [(next, la), (previous, lb)] {
+                let neighbor = *face.get(side).ok_or(Error::InvalidTopology)?;
+                edits.insert((vertex, neighbor), scale(inward, distance * 0.015 / span));
+            }
+        }
+    }
+    for patch in patches {
+        let face = mesh.quads.get(patch.face).ok_or(Error::InvalidTopology)?;
+        for (i, (&a, corner)) in face.iter().zip(corners).enumerate() {
+            for j in [(i + 1) % 4, (i + 3) % 4] {
+                let b = *face.get(j).ok_or(Error::InvalidTopology)?;
+                if let Some(&delta) = edits.get(&(a, b)) {
+                    let (row, col) = handle(corner, *corners.get(j).ok_or(Error::InvalidTopology)?);
+                    let point = patch
+                        .control_points
+                        .get_mut(row)
+                        .and_then(|row| row.get_mut(col))
+                        .ok_or(Error::InvalidTopology)?;
+                    *point = add(*point, delta);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 type Cell = (usize, [(usize, usize); 4]);
