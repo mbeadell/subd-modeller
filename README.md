@@ -7,11 +7,11 @@ the Rust CLI.
 
 Current version: **0.3.0**.
 
-<img width="1466" height="793" alt="image" src="https://github.com/user-attachments/assets/37994e2e-0c48-4c5c-821b-281afda06cd7" />
+<img width="1465" height="796" alt="image" src="https://github.com/user-attachments/assets/da3a2ce2-9e50-4fd2-984a-f8fa627f6e66" />
 
-<img width="1462" height="791" alt="image" src="https://github.com/user-attachments/assets/2240f210-6842-402b-b3eb-eb5682398f6c" />
+Models are tested with Latest Solidcraft Insert STEP and tested with a Solidcraft extrude cut:
 
-<img width="1462" height="890" alt="image" src="https://github.com/user-attachments/assets/a349e3c0-1ade-4d60-b502-d7407e41e4af" />
+<img width="1468" height="919" alt="image" src="https://github.com/user-attachments/assets/73ed9180-9828-4894-9ad5-1dd65666a698" />
 
 ## What's new in v0.3.0
 
