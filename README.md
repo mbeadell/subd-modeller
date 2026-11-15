@@ -7,6 +7,12 @@ the Rust CLI.
 
 Current version: **0.3.0**.
 
+<img width="1466" height="793" alt="image" src="https://github.com/user-attachments/assets/37994e2e-0c48-4c5c-821b-281afda06cd7" />
+
+<img width="1462" height="791" alt="image" src="https://github.com/user-attachments/assets/2240f210-6842-402b-b3eb-eb5682398f6c" />
+
+<img width="1462" height="890" alt="image" src="https://github.com/user-attachments/assets/a349e3c0-1ade-4d60-b502-d7407e41e4af" />
+
 ## What's new in v0.3.0
 
 - File menu with New, Open, Save, and Save As. Preview a cube, cylinder,
