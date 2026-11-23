@@ -1,7 +1,7 @@
 // Original STEP writer based on ISO 10303-21 and ISO 10303-42 entity definitions.
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use subd_prototype::{Mesh, Point, SurfacePatch};
+use crate::{Cage, Mesh, Point, SurfacePatch};
 
 #[derive(Default)]
 struct Step {
@@ -48,12 +48,8 @@ pub fn encode(mesh: Mesh, width_mm: f64) -> Result<String, Box<dyn std::error::E
     encode_body(mesh, width_mm, None)
 }
 
-pub fn encode_splines(
-    mesh: Mesh,
-    width_mm: f64,
-    patches: Vec<SurfacePatch>,
-) -> Result<String, Box<dyn std::error::Error>> {
-    encode_body(mesh, width_mm, Some(patches))
+pub fn encode_splines(cage: &Cage, width_mm: f64) -> Result<String, Box<dyn std::error::Error>> {
+    encode_body(cage.preview(3)?, width_mm, Some(cage.surface_patches()?))
 }
 
 fn encode_body(

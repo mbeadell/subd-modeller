@@ -1,0 +1,8 @@
+{
+  "entry": "open-cage",
+  "file": "creased-cylinder-V2.cage",
+  "expect": {
+    "model": {"body_count": 1, "total": {"volume_mm3": 774103.66147}},
+    "tolerance": 0.00001
+  }
+}

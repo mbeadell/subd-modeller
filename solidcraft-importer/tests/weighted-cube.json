@@ -1,0 +1,13 @@
+{
+  "entry": "open-cage",
+  "file": "weighted-cube.cage",
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 469742.57221
+      }
+    },
+    "tolerance": 1e-05
+  }
+}

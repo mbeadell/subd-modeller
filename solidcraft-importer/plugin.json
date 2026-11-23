@@ -1,0 +1,15 @@
+{
+  "id": "subd-cage",
+  "name": "SubD Cage Importer",
+  "version": "0.1.0",
+  "description": "Open a SubD Modeller cage as a spline solid in a new SolidCraft design.",
+  "capabilities": ["formats@0.2", "evaluate@0.2"],
+  "runtime": {
+    "module": "subd-cage.wasm",
+    "commands": [],
+    "entries": [
+      {"name": "open-cage", "kind": "importer", "extensions": ["cage"], "label": "SubD Cage"}
+    ],
+    "limits": {"fuel": 30000000000, "memory_mib": 128, "deadline_ms": 60000}
+  }
+}

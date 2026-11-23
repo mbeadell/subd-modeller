@@ -25,6 +25,13 @@ Models are tested with Latest Solidcraft Insert STEP and tested with a Solidcraf
 - Hard creases on edges and planar rings. STL and Faceted STEP preserve them.
   Spline STEP supports closed, unbranched crease rings.
 
+## Open a cage in SolidCraft
+
+The optional [SubD Cage Importer](solidcraft-importer/README.md) opens a
+`.cage` file directly as a closed spline solid in a new SolidCraft design.
+It uses the same Rust cage reader and spline STEP writer as the CLI. Keep
+the source cage for further editing in the browser editor.
+
 ## Run the editor
 
 Install stable Rust and Python 3, then run these commands from the checkout.
@@ -92,9 +99,8 @@ shell with a cross-plane loop also imported as one closed spline solid.
 
 ## Next session
 
-Explore mirror planes for quad cages and add crease weights to the geometry
-library. A future native SolidCraft feature would store the cage and regenerate
-the CAD body when it changes.
+Explore mirror planes for quad cages. A future native SolidCraft feature would
+store the cage and regenerate the CAD body when it changes.
 
 ### Raised-cap regression case
 

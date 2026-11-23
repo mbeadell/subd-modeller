@@ -1,14 +1,13 @@
-mod step;
 mod stl;
 
 use std::error::Error;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::process::ExitCode;
-use subd_prototype::{Cage, Point};
+use subd_prototype::cage_file::{parse_width, read_cage, CAGE_HEADER};
+use subd_prototype::{step, Cage};
 
-const CAGE_HEADER: &str = "subd-cube 1";
 const USAGE: &str = "Usage:
   subd-prototype new CAGE [CAGE_WIDTH_MM]
   subd-prototype set CAGE VERTEX X Y Z OUTPUT_CAGE
@@ -41,92 +40,19 @@ fn save(cage: &Cage, width_mm: Option<f64>, path: &str) -> Result<(), Box<dyn Er
             writeln!(writer, "q {a} {b} {c} {d}")?;
         }
     }
-    for &(a, b) in cage.creases() {
-        writeln!(writer, "c {a} {b}")?;
+    for (&(a, b), &weight) in cage.creases() {
+        if weight.is_infinite() {
+            writeln!(writer, "c {a} {b}")?;
+        } else {
+            writeln!(writer, "c {a} {b} {weight}")?;
+        }
     }
     writer.flush()?;
     Ok(())
 }
 
-fn parse_width(value: &str) -> Result<f64, Box<dyn Error>> {
-    let width: f64 = value.parse()?;
-    if (1e-9..=1e12).contains(&width) {
-        Ok(width)
-    } else {
-        Err("cage width must be between 1e-9 and 1e12 mm".into())
-    }
-}
-
 fn load(path: &str) -> Result<(Cage, Option<f64>), Box<dyn Error>> {
-    let mut lines = BufReader::new(File::open(path)?).lines();
-    let header = lines.next().transpose()?;
-    let explicit = header.as_deref() == Some("subd-quads 1");
-    let sectioned = header.as_deref() == Some("subd-sections 1");
-    let width_mm = match header.as_deref() {
-        Some(CAGE_HEADER) => None,
-        Some("subd-cube 2" | "subd-sections 1" | "subd-quads 1") => {
-            let line = lines.next().transpose()?.ok_or("missing cage width")?;
-            Some(parse_width(
-                line.strip_prefix("width-mm ").ok_or("expected width-mm")?,
-            )?)
-        }
-        _ => return Err("invalid cage header".into()),
-    };
-    let mut points = Vec::new();
-    let mut quads = Vec::new();
-    let mut creases = Vec::new();
-    for line in lines {
-        let line = line?;
-        if let Some(edge) = line.strip_prefix("c ") {
-            if creases.len() == 252 {
-                return Err("too many creases".into());
-            }
-            let mut indices = edge.split_whitespace();
-            let a = indices.next().ok_or("missing crease endpoint")?.parse()?;
-            let b = indices.next().ok_or("missing crease endpoint")?.parse()?;
-            if indices.next().is_some() {
-                return Err("expected two crease endpoints".into());
-            }
-            creases.push((a, b));
-            continue;
-        }
-        if let Some(face) = line.strip_prefix("q ").filter(|_| explicit) {
-            if quads.len() == 126 {
-                return Err("too many quad faces".into());
-            }
-            let indices = face
-                .split_whitespace()
-                .map(str::parse)
-                .collect::<Result<Vec<usize>, _>>()?;
-            let quad = indices
-                .try_into()
-                .map_err(|_| "expected four quad indices")?;
-            quads.push(quad);
-            continue;
-        }
-        if points.len() == if explicit { 128 } else { 32 } {
-            return Err("too many control points".into());
-        }
-        let mut fields = line.split_whitespace();
-        let mut point: Point = [0.; 3];
-        for coordinate in &mut point {
-            *coordinate = fields.next().ok_or("missing coordinate")?.parse()?;
-        }
-        if fields.next().is_some() {
-            return Err("too many coordinates".into());
-        }
-        points.push(point);
-    }
-    let mut cage = if explicit {
-        Cage::from_quads(points, quads)?
-    } else {
-        if !sectioned && points.len() != 8 {
-            return Err("cube cages require eight control points".into());
-        }
-        Cage::from_sections(points)?
-    };
-    cage.set_creases(creases)?;
-    Ok((cage, width_mm))
+    read_cage(BufReader::new(File::open(path)?))
 }
 
 fn output(path: impl AsRef<Path>) -> std::io::Result<BufWriter<File>> {
@@ -173,7 +99,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
         [command, input, path] if command == "spline-step" => {
             let (cage, width) = load(input)?;
             let width = width.ok_or("STEP export requires a cage with a width in millimetres")?;
-            let contents = step::encode_splines(cage.preview(3)?, width, cage.surface_patches()?)?;
+            let contents = step::encode_splines(&cage, width)?;
             let mut writer = output(path)?;
             writer.write_all(contents.as_bytes())?;
             writer.flush()?;
