@@ -17,7 +17,7 @@ class Editor(BaseHTTPRequestHandler):
         self.reply("text/html; charset=utf-8", (ROOT / "index.html").read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/preview", "/spline-step", "/faceted-step", "/stl"):
+        if self.path not in ("/preview", "/spline-preview", "/spline-step", "/faceted-step", "/stl"):
             self.send_error(404)
             return
         try:
@@ -38,7 +38,7 @@ class Editor(BaseHTTPRequestHandler):
                 points = payload.get("points")
                 quads = payload.get("quads")
                 creases = payload.get("creases", [])
-                width = 2 if self.path == "/preview" else payload.get("width")
+                width = 2 if self.path in ("/preview", "/spline-preview") else payload.get("width")
                 if type(width) not in (int, float) or not 1e-9 <= width <= 1e12:
                     raise ValueError("Invalid width")
             level = payload.get("level") if self.path == "/stl" else 0
@@ -62,9 +62,11 @@ class Editor(BaseHTTPRequestHandler):
             ):
                 raise ValueError("Invalid quads")
             if not isinstance(creases, list) or len(creases) > 252 or any(
-                not isinstance(edge, list) or len(edge) != 2 or any(
+                not isinstance(edge, list) or len(edge) not in (2, 3) or (len(edge) == 3 and (
+                    type(edge[2]) not in (float, int) or not 0 <= edge[2] <= 3
+                )) or any(
                     type(index) is not int or not 0 <= index < len(points)
-                    for index in edge
+                    for index in edge[:2]
                 ) for edge in creases
             ):
                 raise ValueError("Invalid creases")
@@ -78,6 +80,7 @@ class Editor(BaseHTTPRequestHandler):
                     + "".join("c " + " ".join(map(str, edge)) + "\n" for edge in creases))
                 commands = {
                     "/stl": ["stl", cage, str(level), result],
+                    "/spline-preview": ["spline-preview", cage, result],
                     "/preview": ["preview", cage, "3", result],
                     "/spline-step": ["spline-step", cage, result],
                     "/faceted-step": ["step", cage, "2", result],

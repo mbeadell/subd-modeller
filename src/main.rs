@@ -6,13 +6,14 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::process::ExitCode;
 use subd_prototype::cage_file::{parse_width, read_cage, CAGE_HEADER};
-use subd_prototype::{step, Cage};
+use subd_prototype::{step, Cage, Point};
 
 const USAGE: &str = "Usage:
   subd-prototype new CAGE [CAGE_WIDTH_MM]
   subd-prototype set CAGE VERTEX X Y Z OUTPUT_CAGE
   subd-prototype preview CAGE LEVEL OUTPUT_OBJ
   subd-prototype stl CAGE LEVEL OUTPUT_STL
+  subd-prototype spline-preview CAGE OUTPUT_OBJ
   subd-prototype spline-step CAGE OUTPUT_STEP
   subd-prototype step CAGE LEVEL OUTPUT_STEP";
 
@@ -61,6 +62,21 @@ fn output(path: impl AsRef<Path>) -> std::io::Result<BufWriter<File>> {
     ))
 }
 
+// Compare the two endpoint derivatives without depending on model scale.
+fn has_flat_corner(
+    [[a, ab, ba, b], [ad, _, _, bc], [da, _, _, cb], [d, dc, cd, c]]: [[Point; 4]; 4],
+) -> bool {
+    [(a, ab, ad), (b, ba, bc), (c, cd, cb), (d, dc, da)]
+        .into_iter()
+        .any(|([x, y, z], [px, py, pz], [qx, qy, qz])| {
+            let (u, v, w) = (px - x, py - y, pz - z);
+            let (a, b, c) = (qx - x, qy - y, qz - z);
+            let lengths = u.hypot(v).hypot(w) * a.hypot(b).hypot(c);
+            let cross = (v * c - w * b).hypot(w * a - u * c).hypot(u * b - v * a);
+            cross <= lengths * 2_f64.to_radians().sin()
+        })
+}
+
 fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
     match args {
         [command, path] if command == "new" => save(&Cage::cube(), None, path),
@@ -82,6 +98,43 @@ fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
             }
             for [a, b, c, d] in &mesh.quads {
                 writeln!(writer, "f {} {} {} {}", a + 1, b + 1, c + 1, d + 1)?;
+            }
+            writer.flush()?;
+            Ok(())
+        }
+        [command, input, path] if command == "spline-preview" => {
+            let (cage, width) = load(input)?;
+            let scale = width.map_or(1., |width| width * 0.5);
+            let patches = cage.surface_patches()?;
+            let mut writer = output(path)?;
+            for (index, patch) in patches.iter().enumerate() {
+                if step::planar_frame(patch.control_points).is_none()
+                    && has_flat_corner(patch.control_points)
+                {
+                    writeln!(writer, "# flat-corner {index}")?;
+                }
+                let basis = |t: f64| {
+                    let s = 1. - t;
+                    [s * s * s, 3. * s * s * t, 3. * s * t * t, t * t * t]
+                };
+                for v in [0., 0.5, 1.] {
+                    for u in [0., 0.5, 1.] {
+                        let mut point = [0.; 3];
+                        for (row, bv) in patch.control_points.iter().zip(basis(v)) {
+                            for (control, bu) in row.iter().zip(basis(u)) {
+                                for (coordinate, component) in point.iter_mut().zip(control) {
+                                    *coordinate += component * bu * bv * scale;
+                                }
+                            }
+                        }
+                        let [x, y, z] = point;
+                        writeln!(writer, "v {x} {y} {z}")?;
+                    }
+                }
+                for offset in [0, 1, 3, 4] {
+                    let a = index * 9 + offset + 1;
+                    writeln!(writer, "f {a} {} {} {}", a + 1, a + 4, a + 3)?;
+                }
             }
             writer.flush()?;
             Ok(())
