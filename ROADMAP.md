@@ -10,33 +10,62 @@ The order below is a proposed working sequence based on the project so far.
 Completed items describe implemented capabilities. Export checks cover the
 recorded fixtures and operations.
 
-## Next
+## Next phase — symmetric enclosure workflow
 
-- [ ] **Finish symmetry for topology edits.** Mirror face extrusion, edge-loop
-  insertion, and crease changes across the active plane. Both sides should
-  update in one undo step, keep a closed quad cage, and survive save/reopen.
-- [ ] **Loop selection and transforms.** Select a complete loop, move, scale,
-  or rotate it with shared handles, and slide support loops along neighboring
-  edges. Build the enclosure's tapered nose and tight lower rim with these tools.
-- [ ] **Preserve editing state.** Save surface locks and symmetry settings with
-  the cage. Reopening should restore their positions and behaviour. Add redo
-  and make Save/Save As behaviour clear across supported browsers.
-- [ ] **Verify the editor in a browser.** Check selection, context menus, handles,
-  the left inspector, primitive previews, and narrow-window layouts together.
-  Keep controls visible without shifting the viewport.
-- [ ] **Strengthen crease regression tests.** Cover fractional sharpness,
-  save/reopen, crease inheritance after edge splits, mixed weights, and the
-  transition from sharp refinement to smooth refinement.
-- [ ] **Run the importer integration suite against this revision.** Build the
-  WebAssembly package and run the legacy cube, raised-cap, and malformed-file
-  cases with the supported SolidCraft version.
+Build and save a symmetric enclosure from a cube, with a tapered nose, rounded
+crown, tight lower rim, and a mirrored protrusion. The sequence below puts
+topology editing before finishing and export verification.
 
-### Working modelling milestone
+### 1. Complete mirrored topology editing
 
-Build a symmetric enclosure from a cube with a tapered nose, rounded crown,
-tight lower rim, and a protrusion. Save and reopen it, export STL for Cura,
-and export spline STEP for SolidCraft. Record the cage and a downstream
-through-cut as repeatable fixtures.
+- [ ] Mirror face extrusion, including faces crossing the symmetry plane.
+- [ ] Mirror loop insertion, splitting a shared loop once.
+- [ ] Apply and remove hard and semi-sharp creases on both sides.
+- [ ] Preserve crease weights when edges split.
+
+Completion checks cover XY, XZ, and YZ planes. Each operation must preserve
+paired vertices, centreline positions, and closed oriented quads. Undo reverses
+both sides together. A rejected edit leaves the cage intact. Include cases
+where the selection mirrors onto itself and where a partner is locked.
+
+### 2. Shape and finish with loops
+
+- [ ] Select a complete edge loop and show its selected edges clearly.
+- [ ] Move, scale, and rotate a loop using a shared pivot.
+- [ ] Place an inserted loop at an adjustable position within its quad strip.
+- [ ] Slide an existing support loop along neighboring edges.
+
+Use these controls to shape the enclosure's nose and lower rim. The preview
+must show the proposed edit, and Undo must restore geometry and crease weights.
+Test mirrored and centreline loops, irregular quad strips, and the cage limits.
+
+### 3. Make sessions recoverable
+
+- [ ] Add redo for geometry, topology, crease, and lock edits.
+- [ ] Save symmetry settings and cage/surface locks with the editable cage.
+- [ ] Clarify Save and Save As behaviour and indicate unsaved edits.
+- [ ] Keep existing cage formats readable.
+
+Save, close, and reopen the enclosure. Confirm its dimensions, crease weights,
+locks, and symmetry match the saved session. Cancelled file actions preserve
+the working model. New edits after Undo clear the redo branch.
+
+### 4. Verify the complete workflow
+
+- [ ] Exercise the controls in a real browser, including the context menu,
+  left inspector, face transform panel, primitive preview, and small windows.
+- [ ] Check fractional crease weights, mixed weights, and edge-split inheritance
+  against the Rust evaluator and saved cage round trips.
+- [ ] Export the enclosure as STL and inspect its size and mesh in Cura.
+- [ ] Export spline STEP, import it into SolidCraft, and perform a Ø10 mm cut.
+- [ ] Build and run the importer integration suite against the same revision.
+- [ ] Retain the enclosure cage and cut script as regression fixtures.
+- [ ] Update usage instructions and publish a tagged checkpoint.
+
+The phase is complete when the saved enclosure reopens correctly, its STL has
+the expected millimetre dimensions, and both STEP and importer routes produce
+one closed SolidCraft body that survives the cut. Continue to run the existing
+raised-cap V2 test alongside the enclosure.
 
 ## Later
 
