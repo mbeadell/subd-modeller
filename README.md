@@ -13,6 +13,31 @@ Models are tested with Latest Solidcraft Insert STEP and tested with a Solidcraf
 
 <img width="1468" height="919" alt="image" src="https://github.com/user-attachments/assets/73ed9180-9828-4894-9ad5-1dd65666a698" />
 
+## Editor and geometry updates since v0.3.0
+
+- A left inspector exposes point coordinates, edge lengths, and adjustable
+  crease sharpness. Values from 0 to 3 create semi-sharp creases, while the
+  Crease commands create permanently sharp edges.
+- Mirror modelling across XY, XZ, or YZ includes a visible mirror plane,
+  point and edge moves, and paired face subdivision. The cage must already
+  be symmetric. Mirrored extrusion and loop insertion are still pending.
+- Select and transform faces directly on the SubD surface, including when
+  the cage frame is hidden. Face controls provide scale and axis rotation.
+- Spline preview displays the fitted STEP patches and highlights patches
+  with nearly parallel corner tangents. These warnings are diagnostic and
+  do not certify whether a subsequent CAD operation will succeed.
+
+To try sharpness, select a cage edge, enter a value in the left inspector,
+and click **Set edge** or **Set ring**. Use **Spline preview** to inspect the
+converted surface before export.
+
+## SolidCraft importer
+
+The [SubD Cage Importer](solidcraft-importer/README.md) opens saved cages as
+closed spline solids in SolidCraft. Its source, build script, interface, and
+test fixtures are included. Follow its README to build and install the plugin.
+The importer shares this repository's Rust cage reader and STEP writer.
+
 ## What's new in v0.3.0
 
 - File menu with New, Open, Save, and Save As. Preview a cube, cylinder,
@@ -92,8 +117,7 @@ shell with a cross-plane loop also imported as one closed spline solid.
 
 ## Next session
 
-Explore mirror planes for quad cages and add crease weights to the geometry
-library. A future native SolidCraft feature would store the cage and regenerate
+Extend symmetry to more topology edits and improve loop transforms and sliding. A future native SolidCraft feature would store the cage and regenerate
 the CAD body when it changes.
 
 ### Raised-cap regression case

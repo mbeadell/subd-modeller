@@ -1,0 +1,5 @@
+{
+  "entry": "open-cage",
+  "file": "malformed.cage",
+  "expect": {"error": "invalid_input"}
+}

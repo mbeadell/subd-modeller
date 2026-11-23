@@ -221,7 +221,13 @@ pub struct SurfacePatch {
 
 impl Cage {
     pub fn surface_patches(&self) -> Result<Vec<SurfacePatch>, Error> {
-        if crate::crease_neighbors(self.creases())
+        let hard_creases = self
+            .creases()
+            .iter()
+            .filter(|(_, weight)| weight.is_infinite())
+            .map(|(&edge, &weight)| (edge, weight))
+            .collect();
+        if crate::crease_neighbors(&hard_creases)
             .values()
             .any(|neighbors| neighbors.len() != 2)
         {
@@ -300,7 +306,7 @@ impl Cage {
 // both incident patches so the STEP edge remains shared.
 fn regularize_rim_corners(
     mesh: &crate::Mesh,
-    rim_edges: &std::collections::BTreeSet<crate::EdgeKey>,
+    rim_edges: &std::collections::BTreeMap<crate::EdgeKey, f64>,
     patches: &mut [SurfacePatch],
 ) -> Result<(), Error> {
     use crate::{add, scale};
@@ -320,8 +326,9 @@ fn regularize_rim_corners(
             let next = (i + 1) % 4;
             let previous = (i + 3) % 4;
             if ![next, previous].iter().all(|&side| {
-                face.get(side)
-                    .is_some_and(|&neighbor| rim_edges.contains(&crate::edge_key(vertex, neighbor)))
+                face.get(side).is_some_and(|&neighbor| {
+                    rim_edges.contains_key(&crate::edge_key(vertex, neighbor))
+                })
             }) {
                 continue;
             }
@@ -399,7 +406,7 @@ fn limit_points(mesh: &crate::Mesh) -> Result<Vec<Point>, Error> {
 
 fn limit_points_with_creases(
     mesh: &crate::Mesh,
-    creases: &std::collections::BTreeSet<crate::EdgeKey>,
+    creases: &std::collections::BTreeMap<crate::EdgeKey, f64>,
 ) -> Result<Vec<Point>, Error> {
     use crate::{add, scale};
     let mut rings = vec![([0.; 3], [0.; 3], 0_u32); mesh.points.len()];
@@ -516,7 +523,7 @@ mod fitting_tests {
         for patch in &patches {
             let [a, b, c, d] = mesh.quads[patch.face];
             for (side, (a, b)) in [(a, b), (b, c), (c, d), (d, a)].into_iter().enumerate() {
-                if !creases.contains(&crate::edge_key(a, b)) {
+                if !creases.contains_key(&crate::edge_key(a, b)) {
                     continue;
                 }
                 let mut curve = boundary(&patch.control_points, side);

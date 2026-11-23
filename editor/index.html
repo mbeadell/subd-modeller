@@ -8,7 +8,7 @@
   [hidden] { display: none !important; }
   body { margin: 0; overflow: hidden; background: #131a22; color: #edf4f8;
     font: 14px Inter, system-ui, sans-serif; color-scheme: dark; }
-  main { height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+  main { height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
   header { display: flex; align-items: center; gap: 8px; padding: 5px 12px;
     background: #151e28; border-bottom: 1px solid #334453; z-index: 2; }
   h1 { margin: 0 12px 0 0; font-size: 15px; white-space: nowrap; }
@@ -17,10 +17,10 @@
   .menu { position: absolute; top: 100%; left: 0; min-width: max-content;
     display: grid; gap: 6px; padding: 10px; background: #202d3a;
     border: 1px solid #465c6e; border-radius: 6px; box-shadow: 0 8px 22px #0007; }
-  .toolbar, .inspector, footer { display: flex; align-items: center; gap: 8px;
+  .toolbar, footer { display: flex; align-items: center; gap: 8px;
     min-width: 0; overflow: auto; padding: 6px 12px; white-space: nowrap; }
-  .toolbar, .inspector { background: #202b36; border-bottom: 1px solid #334453; }
-  .toolbar > *, .inspector > * { flex-shrink: 0; }
+  .toolbar { background: #202b36; border-bottom: 1px solid #334453; }
+  .toolbar > * { flex-shrink: 0; }
   .workspace { min-height: 0; display: flex; }
   #new-dialog { flex: 0 0 min(210px, 43vw); overflow: auto; padding: 12px; background: #202b36; }
   #new-dialog label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; }
@@ -28,8 +28,14 @@
   canvas { display: block; width: 100%; height: 100%; background: #1c2834; touch-action: none; }
   #home-view { position: absolute; top: 10px; right: 76px; width: 30px; height: 30px;
     padding: 4px; font-size: 20px; line-height: 1; }
-  .inspector { height: 46px; }
-  .inspector form { display: flex; align-items: center; gap: 8px; }
+  .inspector { flex: 0 0 min(230px, 43vw); min-width: 0; overflow-y: auto;
+    padding: 14px 12px; background: #202b36; border-right: 1px solid #334453; }
+  .inspector h2 { margin: 0 0 12px; font-size: 14px; }
+  .inspector form, .inspector section { display: grid; gap: 8px; margin: 12px 0 0;
+    padding-top: 12px; border-top: 1px solid #465968; }
+  .inspector label { display: grid; gap: 4px; }
+  .inspector input[type="number"] { width: 100%; }
+  .inspector p { color: #b5c6d4; margin: 12px 0 0; }
   input[type="number"] { width: 7em; }
   footer { height: 33px; color: #b5c6d4; font-size: 12px; }
   #status { color: #ffbf9a; overflow: hidden; text-overflow: ellipsis; }
@@ -41,6 +47,11 @@
   button:hover:not(:disabled) { background: #385367; }
   #context-actions { position: fixed; z-index: 4; display: grid; gap: 5px; padding: 6px; background: #202d3a; border: 1px solid #465c6e; }
   #new-dialog form { display: grid; gap: 8px; }
+  #face-transform { position: absolute; display: grid; gap: 6px; width: 158px;
+    max-width: 100%; padding: 8px; background: #202d3a; border: 1px solid #465c6e;
+    border-radius: 6px; }
+  #face-transform label { display: flex; align-items: center; justify-content: space-between; }
+  #face-transform input { width: 65px; }
   .icon { font-size: 17px; line-height: 1; }
 </style>
 <main>
@@ -56,6 +67,9 @@
     <details><summary>Cage</summary><div class="menu">
       <button id="crease" disabled>Crease edge</button>
       <button id="crease-ring" disabled>Crease ring</button>
+      <button data-mirror-axis="0" aria-pressed="false">Mirror across YZ</button>
+      <button data-mirror-axis="1" aria-pressed="false">Mirror across XZ</button>
+      <button data-mirror-axis="2" aria-pressed="false">Mirror across XY</button>
       <button id="reset">Reset cage</button>
     </div></details>
   </header>
@@ -66,15 +80,49 @@
     <button id="subdivide" disabled>Subdivide</button>
     <button id="extrude" disabled>Extrude face</button>
     <label>Depth (mm) <input id="depth" type="number" value="15" step="any"></label>
+    <button id="spline-view" type="button" aria-pressed="false">Spline preview</button>
     <button id="view-mode" type="button" aria-pressed="false">Show SubD</button>
     <button id="show-cage" type="button" aria-pressed="true">Cage frame</button>
     <button id="show-facets" type="button" aria-pressed="true">Facets</button>
     <button id="show-lines" type="button" aria-pressed="false">Surface lines</button>
   </div>
   <div class="workspace">
+    <aside class="inspector" aria-label="Modelling inspector">
+      <h2>Inspector</h2>
+      <label>Reference cage width (mm) <input id="width" type="number" value="100" min="0.000000001" max="1000000000000" step="any" required></label>
+      <p id="inspector-hint">Select a point or edge to edit it.</p>
+      <form id="vertex-coordinates" aria-label="Vertex coordinates in millimetres" hidden>
+        <strong id="vertex-label">Cage vertex</strong>
+        <label>X (mm) <input type="number" step="any" required disabled></label>
+        <label>Y (mm) <input type="number" step="any" required disabled></label>
+        <label>Z (mm) <input type="number" step="any" required disabled></label>
+        <button disabled>Apply coordinates</button>
+      </form>
+      <form id="edge-dimension" hidden>
+        <label>Edge length (mm) <input type="number" step="any" required></label>
+        <button>Apply length</button>
+      </form>
+      <section id="crease-inspector" aria-label="Crease" hidden>
+        <strong>Crease</strong>
+        <span id="current-sharpness"></span>
+        <label>Sharpness (0–3) <input id="crease-weight" type="number" min="0" max="3" step="any" value="1"></label>
+        <button id="apply-crease-weight" type="button">Set edge</button>
+        <button id="apply-ring-weight" type="button">Set ring</button>
+      </section>
+    </aside>
   <div class="viewport">
     <canvas tabindex="0" aria-label="3D viewport with draggable cage points"></canvas>
     <button id="home-view" type="button" aria-label="Reset view" title="Reset view">⌂</button>
+  <form id="face-transform" hidden aria-label="Face transform">
+    <label>Scale <input id="face-scale" type="number" min="0.001" value="1" step="any" required></label>
+    <label>Rotate (°) <input id="face-angle" type="number" value="0" step="any" required></label>
+    <div role="group" aria-label="Rotation axis">
+      <button type="button" data-face-axis="X" aria-pressed="false">X</button>
+      <button type="button" data-face-axis="Y" aria-pressed="false">Y</button>
+      <button type="button" data-face-axis="Z" aria-pressed="true">Z</button>
+    </div>
+    <button>Apply face transform</button>
+  </form>
   </div>
   <aside id="new-dialog" aria-label="New primitive" hidden>
     <form>
@@ -93,20 +141,6 @@
       <button type="button" id="cancel-new">Cancel</button><button type="submit">Create</button>
     </form>
   </aside>
-  </div>
-  <div class="inspector" aria-label="Dimensions">
-    <label>Reference cage width (mm) <input id="width" type="number" value="100" min="0.000000001" max="1000000000000" step="any" required></label>
-  <form id="vertex-coordinates" aria-label="Vertex coordinates in millimetres">
-    <span id="vertex-label">Select a point to edit its coordinates</span>
-    <label>X (mm) <input type="number" step="any" required disabled></label>
-    <label>Y (mm) <input type="number" step="any" required disabled></label>
-    <label>Z (mm) <input type="number" step="any" required disabled></label>
-    <button disabled>Apply coordinates</button>
-  </form>
-  <form id="edge-dimension" hidden>
-    <label>Edge length (mm) <input type="number" step="any" required></label>
-    <button>Apply length</button>
-  </form>
   </div>
   <footer>
     <output id="dimensions" aria-live="off"></output>
@@ -127,6 +161,10 @@
     </form>
   </dialog>
   <div id="context-actions" hidden>
+    <button id="context-loop">Insert edge loop</button>
+    <button data-mirror-axis="0" aria-pressed="false">Mirror across YZ</button>
+    <button data-mirror-axis="1" aria-pressed="false">Mirror across XZ</button>
+    <button data-mirror-axis="2" aria-pressed="false">Mirror across XY</button>
     <button id="context-crease">Crease edge</button>
     <button id="context-crease-ring">Crease ring</button>
     <button id="lock-point">Lock point</button>
@@ -176,11 +214,68 @@ for (const button of [showCage, showFacets, showLines]) {
   };
 }
 
-function moveSelection(delta) {
-  for (const index of drag.points) {
-    if (lockedVertices.has(index)) continue;
-    cage[index] = cage[index].map((value, axis) => value + delta[axis] * (drag.gain ?? 1));
+const mirrorButtons = document.querySelectorAll("[data-mirror-axis]");
+const mirrorPlanes = ["YZ", "XZ", "XY"];
+let mirrorAxis = 0;
+function syncMirrorButtons() {
+  for (const button of mirrorButtons) {
+    button.setAttribute("aria-pressed", String(!!mirrorPairs && Number(button.dataset.mirrorAxis) === mirrorAxis));
   }
+}
+let mirrorPairs = null;
+
+function findMirrorPairs(axis = mirrorAxis) {
+  const tolerance = 1e-8;
+  const pairs = cage.map((point, index) => {
+    if (Math.abs(point[axis]) <= tolerance) return index;
+    const reflected = point.map((value, i) => i === axis ? -value : value);
+    return cage.findIndex(candidate => Math.hypot(...candidate.map((value, i) => value - reflected[i])) <= tolerance);
+  });
+  if (!pairs.every((other,index) => other >= 0 && pairs[other] === index)) return null;
+  const key = face => face.map((_, i) => [...face.slice(i), ...face.slice(0,i)].join(":")).sort()[0];
+  const faces = cageFaces();
+  const keys = new Set(faces.map(key));
+  return faces.every(face => keys.has(key(face.map(index => pairs[index]).reverse()))) ? pairs : null;
+}
+
+for (const button of mirrorButtons) button.onclick = () => {
+  if (drag) return;
+  contextActions.hidden = true;
+  const axis = Number(button.dataset.mirrorAxis);
+  if (mirrorPairs && mirrorAxis === axis) mirrorPairs = null;
+  else {
+    const pairs = findMirrorPairs(axis);
+    if (!pairs || surfaceLocks.size) {
+      status.textContent = surfaceLocks.size ? "Unlock surface junctions before enabling mirror."
+        : `Mirror requires an already symmetric cage across ${mirrorPlanes[axis]}.`;
+      return;
+    }
+    mirrorAxis = axis;
+    mirrorPairs = pairs;
+  }
+  syncMirrorButtons();
+  status.textContent = mirrorPairs ? `Mirror across ${mirrorPlanes[mirrorAxis]} is on` : "";
+  draw();
+};
+
+function moveVertices(indices, delta) {
+  const selected = new Set(indices);
+  const moved = new Set();
+  for (const index of indices) {
+    const other = mirrorPairs?.[index];
+    if (moved.has(index) || lockedVertices.has(index) || lockedVertices.has(other)) continue;
+    const both = other !== undefined && selected.has(other);
+    const move = (vertex, x) => {
+      cage[vertex] = cage[vertex].map((value, axis) => value + (axis === mirrorAxis ? x : delta[axis]));
+      moved.add(vertex);
+    };
+    move(index, both ? 0 : delta[mirrorAxis]);
+    if (other !== undefined && other !== index) move(other, both ? 0 : -delta[mirrorAxis]);
+  }
+}
+
+function moveSelection(delta) {
+  moveVertices(drag.points, delta.map(value => value * (drag.gain ?? 1)));
 }
 
 // Mark the level-three preview segments descended from each coarse face edge.
@@ -244,8 +339,21 @@ function traceLoop(edge, faces) {
 
 const creaseButton = document.querySelector("#crease");
 const creaseRing = document.querySelector("#crease-ring");
-let creases = new Set();
-const creasePairs = () => [...creases].map(key => key.split(":").map(Number));
+const creaseWeight = document.querySelector("#crease-weight");
+const applyCreaseWeight = document.querySelector("#apply-crease-weight");
+const applyRingWeight = document.querySelector("#apply-ring-weight");
+function applySoftCrease(ring) {
+  if (!selectedEdge || !creaseWeight.checkValidity() || !Number.isFinite(creaseWeight.valueAsNumber)) return;
+  toggleCreases(ring ? planarRing(selectedEdge) : [edgeKey(...selectedEdge)], creaseWeight.valueAsNumber);
+}
+applyCreaseWeight.onclick = () => applySoftCrease(false);
+applyRingWeight.onclick = () => applySoftCrease(true);
+
+let creases = new Map();
+const creasePairs = () => [...creases].map(([key, weight]) => {
+  const endpoints = key.split(":").map(Number);
+  return weight === Infinity ? endpoints : [...endpoints, weight];
+});
 
 function planarRing(edge) {
   const [a,b] = edge.map(index => cage[index]);
@@ -279,9 +387,9 @@ function planarRing(edge) {
   return [];
 }
 
-function toggleCreases(keys) {
-  if (drag || !keys.length) return;
-  const remove = keys.every(key => creases.has(key));
+function toggleCreases(keys, weight) {
+  if (drag || mirrorPairs || !keys.length) return;
+  const remove = weight === 0 || (weight === undefined && keys.every(key => creases.has(key)));
   if (!remove && surfaceLocks.size) {
     status.textContent = "Unlock surface junctions before adding creases";
     return;
@@ -289,7 +397,7 @@ function toggleCreases(keys) {
   remember(cage.map(point => [...point]));
   for (const key of keys) {
     if (remove) creases.delete(key);
-    else creases.add(key);
+    else creases.set(key, weight ?? Infinity);
   }
   draw();
   refresh();
@@ -310,9 +418,10 @@ insertLoop.onclick = () => {
     if (!midpoints.has(key)) {
       const middle = cage.length;
       midpoints.set(key, middle);
+      const weight = creases.get(key);
       if (creases.delete(key)) {
-        creases.add(edgeKey(a,middle));
-        creases.add(edgeKey(b,middle));
+        creases.set(edgeKey(a,middle),weight);
+        creases.set(edgeKey(b,middle),weight);
       }
       cage.push(cage[a].map((value, axis) => (value + cage[b][axis]) / 2));
     }
@@ -378,13 +487,56 @@ coordinateForm.onsubmit = event => {
     return;
   }
   remember(cage.map(point => [...point]));
-  cage[selected] = point;
+  moveVertices([selected], point.map((value, axis) => value - cage[selected][axis]));
   draw();
   refresh();
 };
 
+const splineButton = document.querySelector("#spline-view");
+let splinePreview = null;
+
+splineButton.onclick = async () => {
+  if (drag) return;
+  if (splinePreview) {
+    splinePreview = null;
+    splineButton.setAttribute("aria-pressed", "false");
+    draw();
+    return;
+  }
+  const requested = revision;
+  splineButton.disabled = true;
+  status.textContent = "Building spline preview…";
+  try {
+    const response = await fetch("/spline-preview", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({points: cage, quads: explicitFaces, creases: creasePairs()})
+    });
+    const body = await response.text();
+    if (!response.ok) throw new Error(response.status === 422 ? body.trim() : "Spline preview failed");
+    if (requested !== revision) return;
+    const preview = {points: [], faces: [], flatCorners: new Set()};
+    for (const line of body.trim().split("\n")) {
+      const [kind, ...values] = line.split(" ");
+      if (kind === "#" && values[0] === "flat-corner") preview.flatCorners.add(Number(values[1]));
+      if (kind === "v") preview.points.push(values.map(Number));
+      if (kind === "f") preview.faces.push(values.map(value => Number(value)-1));
+    }
+    splinePreview = preview;
+    splineButton.setAttribute("aria-pressed", "true");
+    status.textContent = preview.flatCorners.size
+      ? `${preview.flatCorners.size} spline patches have near-parallel corner tangents`
+      : "Spline preview · Surface lines shows patch boundaries";
+    draw();
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    splineButton.disabled = false;
+  }
+};
+
 function toggleView() {
   if (drag) return;
+  if (splinePreview) { splineButton.click(); return; }
   smoothView = !smoothView;
   viewMode.textContent = smoothView ? "Show cage" : "Show SubD";
   viewMode.setAttribute("aria-pressed", String(smoothView));
@@ -465,8 +617,8 @@ function edgeVector() {
 }
 
 function syncEdgeDimension() {
-  edgeForm.hidden = selectedEdge === null;
-  const enabled = !edgeForm.hidden && selectedEdge && !selectedEdge.some(index => lockedVertices.has(index)) && width.validity.valid && !drag;
+  edgeForm.hidden = selectedEdge === null || !!splinePreview;
+  const enabled = !edgeForm.hidden && selectedEdge && !mirrorPairs && !selectedEdge.some(index => lockedVertices.has(index)) && width.validity.valid && !drag;
   applyLength.disabled = edgeLength.disabled = !enabled;
   if (document.activeElement !== edgeLength) {
     edgeLength.value = enabled ? Math.hypot(...edgeVector()) * (width.valueAsNumber / 2) : "";
@@ -519,7 +671,7 @@ const undo = document.querySelector("#undo");
 const history = [];
 
 function remember(points) {
-  history.push({points, faces: explicitFaces, creases: new Set(creases), locks: new Set(lockedVertices), surfaceLocks: new Map(surfaceLocks), width: width.value});
+  history.push({points, faces: explicitFaces, creases: new Map(creases), locks: new Set(lockedVertices), surfaceLocks: new Map(surfaceLocks), width: width.value});
   if (history.length > 50) history.shift();
   undo.disabled = false;
 }
@@ -606,6 +758,12 @@ function axisHandles() {
   if (selectedEdge && isOn(showCage)) {
     const [a, b] = selectedEdge.map(index => cage[index]);
     origin = a.map((value, axis) => (value + b[axis]) / 2);
+  } else if (selectedFace !== null) {
+    const points = hasSurfacePreview()
+      ? mesh.faces.slice(selectedFace * 64, (selectedFace + 1) * 64)
+          .flatMap(face => face.map(index => mesh.points[index]))
+      : cageFaces()[selectedFace].map(index => cage[index]);
+    origin = [0, 1, 2].map(axis => points.reduce((sum, point) => sum + point[axis], 0) / points.length);
   } else if (selected !== null) {
     const source = editingPoints();
     if (!source.length) return [];
@@ -626,7 +784,7 @@ function drawAxisHandles() {
   for (const {index, color, x, y, dx, dy} of axisHandles()) {
     const tipX = x + 54 * dx, tipY = y + 54 * dy;
     context.strokeStyle = context.fillStyle = color;
-    context.lineWidth = drag?.axis === String(index) ? 4 : 2;
+    context.lineWidth = drag?.axis === String(index) || (selectedFace !== null && index === faceRotationAxis) ? 4 : 2;
     context.beginPath();
     context.moveTo(x + 9 * dx, y + 9 * dy);
     context.lineTo(tipX, tipY);
@@ -651,32 +809,151 @@ function pickAxisHandle(x, y) {
   return hits[0]?.index;
 }
 
+function drawMirrorPlane() {
+  if (!mirrorPairs) return;
+  const axes = [0, 1, 2].filter(axis => axis !== mirrorAxis);
+  const [ys, zs] = axes.map(axis => {
+    const values = cage.map(point => point[axis]);
+    const low = Math.min(...values), high = Math.max(...values);
+    const margin = Math.max((high - low) * 0.12, 0.08);
+    return [low - margin, high + margin];
+  });
+  const [[x,y], ...rest] = [
+    [ys[0], zs[0]], [ys[1], zs[0]], [ys[1], zs[1]], [ys[0], zs[1]]
+  ].map(([u,v]) => project([0,1,2].map(axis => axis === axes[0] ? u : axis === axes[1] ? v : 0)));
+  context.save();
+  context.beginPath();
+  context.moveTo(x,y);
+  for (const [px,py] of rest) context.lineTo(px,py);
+  context.closePath();
+  context.fillStyle = "rgba(104, 207, 255, 0.14)";
+  context.fill();
+  context.strokeStyle = "#68cfff";
+  context.lineWidth = 1;
+  context.setLineDash([5,4]);
+  context.stroke();
+  context.restore();
+}
+
+const faceTransform = document.querySelector("#face-transform");
+const faceAxes = [...faceTransform.querySelectorAll("[data-face-axis]")];
+let faceRotationAxis = 2;
+for (const [index, button] of faceAxes.entries()) {
+  button.onclick = () => {
+    faceRotationAxis = index;
+    for (const candidate of faceAxes) candidate.setAttribute("aria-pressed", String(candidate === button));
+    document.querySelector("#face-angle").focus();
+    draw();
+  };
+}
+faceTransform.onsubmit = event => {
+  event.preventDefault();
+  if (drag || selectedFace === null || splinePreview) return;
+  const face = cageFaces()[selectedFace];
+  const affected = new Set(face.flatMap(index => mirrorPairs ? [index, mirrorPairs[index]] : [index]));
+  if ([...affected].some(index => lockedVertices.has(index))) {
+    status.textContent = "Unlock the face vertices before transforming";
+    return;
+  }
+  const scale = document.querySelector("#face-scale").valueAsNumber;
+  const angle = document.querySelector("#face-angle").valueAsNumber * Math.PI / 180;
+  const axis = faceRotationAxis;
+  const u = (axis + 1) % 3, v = (axis + 2) % 3;
+  const center = [0,1,2].map(i => face.reduce((sum,index) => sum + cage[index][i], 0) / face.length);
+  const edits = new Map();
+  for (const index of face) {
+    const offset = cage[index].map((value,i) => (value - center[i]) * scale);
+    const x = offset[u], y = offset[v];
+    offset[u] = x * Math.cos(angle) - y * Math.sin(angle);
+    offset[v] = x * Math.sin(angle) + y * Math.cos(angle);
+    edits.set(index, offset.map((value,i) => value + center[i]));
+  }
+  if (mirrorPairs) {
+    for (const index of face) {
+      const partner = mirrorPairs[index];
+      const reflected = edits.get(index).map((value,i) => i === mirrorAxis ? -value : value);
+      if (edits.has(partner) && edits.get(partner).some((value,i) => Math.abs(value-reflected[i]) > 1e-8)) {
+        status.textContent = "This transform would break mirror symmetry";
+        return;
+      }
+      edits.set(partner, reflected);
+    }
+  }
+  if ([...edits.values()].some(point => point.some(value => !(Math.abs(value) <= 1e12)))) {
+    status.textContent = "Face transform is outside the cage range";
+    return;
+  }
+  remember(cage.map(point => [...point]));
+  for (const [index, point] of edits) cage[index] = point;
+  draw();
+  refresh();
+};
+
+const creaseInspector = document.querySelector("#crease-inspector");
+const currentSharpness = document.querySelector("#current-sharpness");
+const inspectorHint = document.querySelector("#inspector-hint");
+let displayedCrease;
+function updateInspector() {
+  const edge = !splinePreview && selectedEdge;
+  const point = !splinePreview && selectedVertices.size === 1;
+  coordinateForm.hidden = !point;
+  creaseInspector.hidden = !edge;
+  inspectorHint.hidden = !!(edge || point);
+  if (!edge) {
+    displayedCrease = undefined;
+    return;
+  }
+  const key = edgeKey(...edge);
+  const weight = creases.get(key) ?? 0;
+  currentSharpness.textContent = weight === Infinity ? "Current: Hard crease" : `Current: ${weight}`;
+  const signature = key + ":" + weight;
+  if (displayedCrease !== signature) {
+    creaseWeight.value = weight === 0 || weight === Infinity ? 1 : weight;
+    displayedCrease = signature;
+  }
+}
+
 function draw() {
+  updateInspector();
+  faceTransform.hidden = selectedFace === null || !!splinePreview || !!newPreview;
+  if (!faceTransform.hidden) {
+    const handle = axisHandles()[0];
+    if (handle) {
+      const maxX = Math.max(0, canvas.clientWidth - faceTransform.offsetWidth - 8);
+      const maxY = Math.max(0, canvas.clientHeight - faceTransform.offsetHeight - 8);
+      const left = handle.x + 76 <= maxX ? handle.x + 76 : handle.x - faceTransform.offsetWidth - 76;
+      faceTransform.style.left = Math.max(0, Math.min(left, maxX)) + "px";
+      faceTransform.style.top = Math.max(0, Math.min(handle.y + 34, maxY)) + "px";
+    }
+  }
   syncEdgeDimension();
   syncCoordinates();
   const ratio = window.devicePixelRatio || 1;
   canvas.width = Math.round(canvas.clientWidth * ratio);
   canvas.height = Math.round(canvas.clientHeight * ratio);
   context.scale(ratio, ratio);
-  const projected = (smoothView ? mesh.points : cage).map(project);
+  const projected = (splinePreview?.points ?? (smoothView ? mesh.points : cage)).map(project);
   const lines = smoothView && isOn(showLines) ? surfaceLines(mesh.faces.length / 64) : new Map();
-  const faces = (smoothView ? mesh.faces : cageFaces()).map((face, index) => {
+  const splineBorders = [[0,3],[0,1],[2,3],[1,2]];
+  const faces = (splinePreview?.faces ?? (smoothView ? mesh.faces : cageFaces())).map((face, index) => {
     const points = face.map(index => projected[index]);
     const [a, b, c] = points;
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = (b[2] - a[2]) * scale();
     const vx = c[0] - a[0], vy = c[1] - a[1], vz = (c[2] - a[2]) * scale();
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const light = Math.max(0, (-0.3 * nx + 0.45 * ny - 0.8 * nz) / (Math.hypot(nx, ny, nz) || 1));
-    return { index, points, edges: lines.get(index) || [], depth: points.reduce((sum, point) => sum + point[2], 0), light };
+    return { index, points, edges: (splinePreview ? (isOn(showLines) ? splineBorders[index % 4] : []) : lines.get(index)) || [], depth: points.reduce((sum, point) => sum + point[2], 0), light };
   });
   faces.sort((a, b) => a.depth - b.depth);
   for (const {index, points, light, edges} of faces) {
     context.beginPath();
     points.forEach(([x, y], index) => index ? context.lineTo(x, y) : context.moveTo(x, y));
     context.closePath();
-    const crossing = smoothView && mesh.crossings?.has(index);
+    const crossing = splinePreview
+      ? splinePreview.flatCorners.has(Math.floor(index / 4))
+      : smoothView && mesh.crossings?.has(index);
     if (isOn(showFacets) || crossing) {
-      context.fillStyle = crossing ? "#d4474d" : (smoothView ? Math.floor(index / 64) : index) === selectedFace ? "#536d38" : `hsl(198 50% ${27 + 44 * light}%)`;
+      context.fillStyle = crossing ? "#d4474d" : !splinePreview && (smoothView ? Math.floor(index / 64) : index) === selectedFace ? "#536d38" : `hsl(198 50% ${27 + 44 * light}%)`;
       context.fill();
       context.strokeStyle = context.fillStyle;
       context.stroke();
@@ -693,17 +970,21 @@ function draw() {
   const corners = cage.map(project);
   const highlighted = selectedEdge ?? (selectedFace === null ? [...selectedVertices] : cageFaces()[selectedFace]);
 
-  extrude.disabled = selectedFace === null;
+  extrude.disabled = !!mirrorPairs || selectedFace === null;
   const facesForLoop = cageFaces();
   const ring = selectedEdge ? planarRing(selectedEdge) : [];
-  creaseButton.disabled = !selectedEdge;
+  creaseButton.disabled = !selectedEdge || !!mirrorPairs;
   creaseButton.textContent = selectedEdge && creases.has(edgeKey(...selectedEdge)) ? "Remove crease" : "Crease edge";
-  creaseRing.disabled = !ring.length;
+  creaseRing.disabled = !ring.length || !!mirrorPairs;
+  applyCreaseWeight.disabled = creaseButton.disabled;
+  applyRingWeight.disabled = creaseRing.disabled;
   creaseRing.textContent = ring.length && ring.every(key => creases.has(key)) ? "Uncrease ring" : "Crease ring";
   const loop = selectedEdge ? traceLoop(selectedEdge, facesForLoop) : null;
-  insertLoop.disabled = !loop || facesForLoop.length + loop.size > 126;
+  insertLoop.disabled = !!mirrorPairs || !loop || facesForLoop.length + loop.size > 126;
   subdivide.disabled = selectedFace === null && insertLoop.disabled;
+  drawMirrorPlane();
   drawOrientation();
+  if (splinePreview) return;
   if (isOn(showCage)) {
     if (loop && !insertLoop.disabled) {
       context.strokeStyle = "#77dbff";
@@ -833,6 +1114,11 @@ async function checkStl(blob) {
 }
 
 async function refresh() {
+  if (splinePreview) {
+    splinePreview = null;
+    splineButton.setAttribute("aria-pressed", "false");
+    draw();
+  }
   if (surfaceLocks.size) holdSurfaceLocks();
   revision++;
   if (pending) return;
@@ -869,6 +1155,16 @@ const contextCrease = document.querySelector("#context-crease");
 const contextCreaseRing = document.querySelector("#context-crease-ring");
 let contextVertex, contextFace, contextEdge;
 
+const contextLoop = document.querySelector("#context-loop");
+contextLoop.onclick = () => {
+  if (contextLoop.disabled || drag) return;
+  contextActions.hidden = true;
+  selected = selectedFace = null;
+  selectedVertices.clear();
+  selectedEdge = contextEdge;
+  insertLoop.onclick();
+};
+
 contextCrease.onclick = () => {
   contextActions.hidden = true;
   if (contextEdge) toggleCreases([edgeKey(...contextEdge)]);
@@ -888,8 +1184,8 @@ function selectContextFace() {
 }
 
 lockPoint.onclick = () => {
-  if (surfaceEditing() && creases.size && !lockedVertices.has(contextVertex)) {
-    status.textContent = "Surface locks require a smooth cage";
+  if (surfaceEditing() && (creases.size || mirrorPairs) && !lockedVertices.has(contextVertex)) {
+    status.textContent = "Surface locks require a smooth cage with mirror off";
     contextActions.hidden = true;
     return;
   }
@@ -925,7 +1221,9 @@ function openContextActions(event) {
     .sort((a,b) => a.distance - b.distance || b.depth - a.depth)[0]?.index;
   contextFace = pickFace(x, y);
   contextEdge = contextVertex === undefined && isOn(showCage) ? pickEdge(x, y) : null;
-  if (contextVertex === undefined && contextFace === null && !contextEdge) return;
+  const strip = contextEdge ? traceLoop(contextEdge,cageFaces()) : null;
+  contextLoop.hidden = !contextEdge;
+  contextLoop.disabled = !!mirrorPairs || !strip || cageFaces().length + strip.size > 126;
   contextCrease.hidden = !contextEdge;
   contextCrease.textContent = contextEdge && creases.has(edgeKey(...contextEdge))
     ? "Remove crease" : "Crease edge";
@@ -958,7 +1256,7 @@ canvas.addEventListener("keydown", event => {
 });
 
 canvas.addEventListener("pointerdown", event => {
-  if (drag || ![0, 2].includes(event.button) || (newPreview && event.button !== 2)) return;
+  if ((splinePreview && event.button !== 2) || drag || ![0, 2].includes(event.button) || (newPreview && event.button !== 2)) return;
   canvas.focus({preventScroll: true});
   const bounds = canvas.getBoundingClientRect();
   const x = event.clientX - bounds.left, y = event.clientY - bounds.top;
@@ -977,7 +1275,7 @@ canvas.addEventListener("pointerdown", event => {
     }
     selected = [...selectedVertices].at(-1) ?? null;
     selectedEdge = selected === null && isOn(showCage) ? pickEdge(x, y) : null;
-    selectedFace = selected === null && !selectedEdge && isOn(showCage) && !event.shiftKey ? pickFace(x, y) : null;
+    selectedFace = selected === null && !selectedEdge && !event.shiftKey ? pickFace(x, y) : null;
     if (selected === null || event.shiftKey) {
       draw();
       return;
@@ -987,8 +1285,10 @@ canvas.addEventListener("pointerdown", event => {
   if (event.button === 2) drag.orbitStart = [event.clientX, event.clientY];
   if (event.button === 0) {
     drag.axis = handle === undefined ? axis.value : String(handle);
-    drag.points = selectedEdge?.some(index => lockedVertices.has(index)) ? [] :
-      (selectedEdge ?? [...selectedVertices]).filter(index => !lockedVertices.has(index));
+    const group = selectedEdge ?? (selectedFace === null ? null : cageFaces()[selectedFace]);
+    drag.points = group ? (group.some(index => lockedVertices.has(index) ||
+      lockedVertices.has(mirrorPairs?.[index])) ? [] : group) :
+      [...selectedVertices].filter(index => !lockedVertices.has(index));
     drag.before = cage.map(point => [...point]);
     // At a Catmull–Clark limit vertex the original control point has
     // coefficient n/(n+5). Compensate for that influence for a single handle.
@@ -1040,7 +1340,7 @@ canvas.addEventListener("pointermove", event => {
 });
 
 canvas.addEventListener("pointerup", event => {
-  if (!newPreview && event.button === 2 && event.pointerId === drag?.pointer && !drag.orbited) {
+  if (!splinePreview && !newPreview && event.button === 2 && event.pointerId === drag?.pointer && !drag.orbited) {
     openContextActions(event);
   }
 });
@@ -1058,6 +1358,8 @@ undo.onclick = () => {
   cage = previous.points;
   explicitFaces = previous.faces;
   creases = previous.creases;
+  if (mirrorPairs) mirrorPairs = findMirrorPairs();
+  syncMirrorButtons();
   lockedVertices = previous.locks;
   surfaceLocks = previous.surfaceLocks;
   width.value = previous.width;
@@ -1088,16 +1390,24 @@ document.querySelector("#reset").onclick = () => {
   lockedVertices.clear();
   surfaceLocks.clear();
   cage = cube.map(point => [...point]);
+  if (mirrorPairs) mirrorPairs = findMirrorPairs();
   draw();
   refresh();
 };
 const subdivide = document.querySelector("#subdivide");
 const extrude = document.querySelector("#extrude");
 
+function hasSurfacePreview() {
+  return smoothView && mesh.points.length > 0 &&
+    mesh.cageSize === cage.length && mesh.topology === explicitFaces;
+}
+
 function pickFace(x, y) {
   let hit = null;
   let nearest = -Infinity;
-  const useSurface = smoothView && mesh.cageSize === cage.length && mesh.topology === explicitFaces;
+  const useSurface = hasSurfacePreview();
+  if (smoothView ? !useSurface || (!isOn(showFacets) && !isOn(showLines))
+    : !isOn(showCage) && !isOn(showFacets)) return null;
   const points = (useSurface ? mesh.points : cage).map(project);
   (useSurface ? mesh.faces : cageFaces()).forEach((face, index) => {
     const corners = face.map(vertex => points[vertex]);
@@ -1115,8 +1425,57 @@ function pickFace(x, y) {
   return hit;
 }
 
+function subdivideMirroredFace() {
+  const faces = cageFaces();
+  const reflected = faces[selectedFace].map(vertex => mirrorPairs[vertex]);
+  const other = faces.findIndex(face => reflected.every(vertex => face.includes(vertex)));
+  if (other < 0) return;
+  const targets = new Set([selectedFace, other]);
+  if (faces.length + 4 * targets.size > 126 || cage.length + 4 * targets.size > 128) {
+    status.textContent = "Cage topology limit reached";
+    return;
+  }
+  const previousCage = cage;
+  const previousFaces = explicitFaces;
+  cage = cage.slice();
+  explicitFaces = faces.slice();
+  for (const index of [...targets].sort((a,b) => b-a)) {
+    const face = faces[index];
+    const points = face.map(vertex => cage[vertex]);
+    const center = [0,1,2].map(axis => points.reduce((sum, point) => sum + point[axis], 0) / 4);
+    const inner = points.map((point, i) => cage.length + i);
+    cage.push(...points.map(point => point.map((value, axis) => (value + center[axis]) / 2)));
+    const sides = face.map((vertex, i) => {
+      const next = (i + 1) % 4;
+      return [vertex, face[next], inner[next], inner[i]];
+    });
+    explicitFaces.splice(index, 1, inner, ...sides);
+  }
+  const pairs = findMirrorPairs();
+  if (!pairs) {
+    cage = previousCage;
+    explicitFaces = previousFaces;
+    status.textContent = "Could not pair the subdivided faces";
+    return;
+  }
+  const newCage = cage, newFaces = explicitFaces;
+  cage = previousCage;
+  explicitFaces = previousFaces;
+  remember(cage);
+  cage = newCage;
+  explicitFaces = newFaces;
+  mirrorPairs = pairs;
+  if (other < selectedFace) selectedFace += 4;
+  draw();
+  refresh();
+}
+
 function editFace(extruding) {
   if (drag || selectedFace === null) return;
+  if (mirrorPairs) {
+    if (!extruding) subdivideMirroredFace();
+    return;
+  }
   const faces = cageFaces();
   if (faces.length + 4 > 126 || cage.length + 4 > 128) {
     status.textContent = "Cage topology limit reached";
@@ -1222,12 +1581,14 @@ let newPreview = null;
 
 document.querySelector("#new").onclick = () => {
   if (drag || newPreview) return;
-  newPreview = { cage, explicitFaces, mesh, width: width.value, selected,
+  newPreview = { cage, explicitFaces, mesh, mirrorPairs, width: width.value, selected,
     vertices: [...selectedVertices], selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases };
+  mirrorPairs = null;
+  syncMirrorButtons();
   selected = selectedEdge = selectedFace = null;
   selectedVertices.clear();
   lockedVertices = new Set();
-  creases = new Set();
+  creases = new Map();
   surfaceLocks = new Map();
   for (const control of editorControls) control.inert = true;
   newDialog.hidden = false;
@@ -1267,8 +1628,9 @@ function finishPrimitive(create) {
     undo.disabled = false;
     document.querySelector("#file-name").value = "untitled";
   } else {
-    ({cage, explicitFaces, mesh, selected, selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases} = previous);
+    ({cage, explicitFaces, mesh, mirrorPairs, selected, selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases} = previous);
     width.value = previous.width;
+    syncMirrorButtons();
     for (const vertex of previous.vertices) selectedVertices.add(vertex);
   }
   newDialog.hidden = true;
@@ -1345,7 +1707,8 @@ document.querySelector("#open-cage").onchange = async event => {
         points.some(point => point.length !== 3 || point.some(value => !(Math.abs(value) <= 1e12)))) {
       throw new Error("Invalid cage file");
     }
-    if (loadedCreases.some(edge => edge.length !== 2 || edge.some(index =>
+    if (loadedCreases.some(edge => ![2,3].includes(edge.length) ||
+        (edge.length === 3 && !(edge[2] >= 0 && edge[2] <= 3)) || edge.slice(0,2).some(index =>
         !Number.isInteger(index) || index < 0 || index >= points.length) || edge[0] === edge[1])) {
       throw new Error("Invalid crease endpoints");
     }
@@ -1353,10 +1716,12 @@ document.querySelector("#open-cage").onchange = async event => {
     history.length = 0;
     undo.disabled = true;
     cage = points;
+    mirrorPairs = null;
+    syncMirrorButtons();
     lockedVertices.clear();
     surfaceLocks.clear();
     explicitFaces = quads;
-    creases = new Set(loadedCreases.map(edge => edgeKey(...edge)));
+    creases = new Map(loadedCreases.filter(edge => edge[2] !== 0).map(([a,b,weight]) => [edgeKey(a,b),weight ?? Infinity]));
     width.value = mm;
     fileName.value = file.name.replace(/\.cage$/i, "");
     selected = null;
