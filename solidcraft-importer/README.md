@@ -8,8 +8,9 @@ SubD Modeller CLI. Cage editing stays in the browser editor. Keep the original
 ## Build and test
 
 Use stable Rust with the `wasm32-unknown-unknown` target, `wasm-tools`, `zip`,
-and SolidCraft CLI 0.47.0. The interface in `wit/plugin.wit` comes from SolidCraft
-v0.47.0, and the emitted design format is `solidcraft/65`.
+and SolidCraft CLI 0.47.0. The emitted design format is `solidcraft/65`.
+The vendored [plugin interface](https://github.com/tangency-labs/solidcraft/blob/v0.47.0/crates/craft-plugin/wit/plugin.wit)
+comes from SolidCraft v0.47.0 under MIT or Apache 2.0.
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -17,8 +18,8 @@ cargo install wasm-tools --locked
 sh solidcraft-importer/build.sh
 ```
 
-The script checks the package and tests a legacy cube, the raised-cap creased
-cylinder, and a malformed cage before it creates
+The script checks the package and tests a legacy cube, a weighted-crease cube,
+the raised-cap creased cylinder, and a malformed cage before it creates
 `target/solidcraft-plugin/subd-cage.zip`. Legacy cages without a width use the
 browser editor's 100 mm default. The importer uses no folder grants.
 
