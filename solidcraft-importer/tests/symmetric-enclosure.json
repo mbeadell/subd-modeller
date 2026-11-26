@@ -1,0 +1,13 @@
+{
+  "entry": "open-cage",
+  "file": "symmetric-enclosure.cage",
+  "expect": {
+    "model": {
+      "body_count": 1,
+      "total": {
+        "volume_mm3": 380143.9833008858
+      }
+    },
+    "tolerance": 1e-05
+  }
+}

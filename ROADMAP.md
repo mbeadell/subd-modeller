@@ -1,6 +1,6 @@
 # SubD Modeller roadmap
 
-Updated 23 November 2026.
+Updated 27 November 2026.
 
 The aim is a capable single-body SubD modeller with editable cages,
 millimetre dimensions, and useful mesh and CAD exports. The standalone editor
@@ -18,10 +18,10 @@ topology editing before finishing and export verification.
 
 ### 1. Complete mirrored topology editing
 
-- [ ] Mirror face extrusion, including faces crossing the symmetry plane.
-- [ ] Mirror loop insertion, splitting a shared loop once.
-- [ ] Apply and remove hard and semi-sharp creases on both sides.
-- [ ] Preserve crease weights when edges split.
+- [x] Mirror face extrusion, including faces crossing the symmetry plane.
+- [x] Mirror loop insertion, splitting a shared loop once.
+- [x] Apply and remove hard and semi-sharp creases on both sides.
+- [x] Preserve crease weights when edges split.
 
 Completion checks cover XY, XZ, and YZ planes. Each operation must preserve
 paired vertices, centreline positions, and closed oriented quads. Undo reverses
@@ -30,10 +30,10 @@ where the selection mirrors onto itself and where a partner is locked.
 
 ### 2. Shape and finish with loops
 
-- [ ] Select a complete edge loop and show its selected edges clearly.
-- [ ] Move, scale, and rotate a loop using a shared pivot.
-- [ ] Place an inserted loop at an adjustable position within its quad strip.
-- [ ] Slide an existing support loop along neighboring edges.
+- [x] Select a complete edge loop and show its selected edges clearly.
+- [x] Move, scale, and rotate a loop using a shared pivot.
+- [x] Place an inserted loop at an adjustable position within its quad strip.
+- [x] Slide an existing support loop along neighboring edges.
 
 Use these controls to shape the enclosure's nose and lower rim. The preview
 must show the proposed edit, and Undo must restore geometry and crease weights.
@@ -41,10 +41,14 @@ Test mirrored and centreline loops, irregular quad strips, and the cage limits.
 
 ### 3. Make sessions recoverable
 
-- [ ] Add redo for geometry, topology, crease, and lock edits.
-- [ ] Save symmetry settings and cage/surface locks with the editable cage.
-- [ ] Clarify Save and Save As behaviour and indicate unsaved edits.
-- [ ] Keep existing cage formats readable.
+- [x] Add redo for geometry, topology, crease, and lock edits.
+- [x] Save symmetry settings and cage/surface locks with the editable cage.
+  Enclosure save/reopen and mirrored surface locks verified in the browser.
+- [ ] Clarify Save and Save As behaviour.
+- [x] Add browser-local session recovery and indicate unsaved edits
+  ([issue #2](https://github.com/mbeadell/subd-modeller/issues/2)).
+  User verified recovery in the live browser.
+- [x] Keep existing cage formats readable.
 
 Save, close, and reopen the enclosure. Confirm its dimensions, crease weights,
 locks, and symmetry match the saved session. Cancelled file actions preserve
@@ -56,16 +60,24 @@ the working model. New edits after Undo clear the redo branch.
   left inspector, face transform panel, primitive preview, and small windows.
 - [ ] Check fractional crease weights, mixed weights, and edge-split inheritance
   against the Rust evaluator and saved cage round trips.
-- [ ] Export the enclosure as STL and inspect its size and mesh in Cura.
-- [ ] Export spline STEP, import it into SolidCraft, and perform a Ø10 mm cut.
-- [ ] Build and run the importer integration suite against the same revision.
-- [ ] Retain the enclosure cage and cut script as regression fixtures.
-- [ ] Update usage instructions and publish a tagged checkpoint.
+- [x] Inspect the enclosure STL in Cura. Binary structure verified with 2,304 triangles.
+- [x] Export spline STEP, import it into SolidCraft, and perform a Ø10 mm cut.
+- [x] Build and run the importer integration suite against the same revision.
+- [x] Retain the enclosure cage and cut script as regression fixtures.
+- [x] Update usage instructions and publish a tagged checkpoint.
 
 The phase is complete when the saved enclosure reopens correctly, its STL has
 the expected millimetre dimensions, and both STEP and importer routes produce
 one closed SolidCraft body that survives the cut. Continue to run the existing
 raised-cap V2 test alongside the enclosure.
+
+## Requested primitives
+
+[Issue #3](https://github.com/mbeadell/subd-modeller/issues/3) requests primitives
+defined by the resulting SubD shape, rather than just the starting cage.
+Add an ellipsoid, a cube-like SubD, and equal tees with square and cylindrical
+sections. Verify the rounded result, XYZ sizing, closed topology, and exports.
+Keep primitive naming explicit about what the user will see in SubD view.
 
 ## Later
 
@@ -128,3 +140,14 @@ raised-cap V2 test alongside the enclosure.
 
 Use GitHub issues for individual implementation tasks and bug reproductions.
 Link them here as they are opened.
+
+
+### Enclosure verification
+
+[Symmetric enclosure](examples/symmetric-enclosure.cage) includes a tapered
+nose, paired side protrusions, a semi-sharp lower rim, and saved YZ symmetry.
+The [cut script](examples/symmetric-enclosure-cut.json) leaves one closed body.
+The direct STEP route measured 380,143.9833 mm³ before the cut and
+376,250.0223 mm³ afterwards. The STL has 2,304 triangles. The user verified opening the cage in the editor, importing with SolidCraft
+0.50.0, cutting a Ø10 mm hole, and sending SolidCraft STL/3MF to Cura.
+The modeller’s native STL was also verified in Cura.

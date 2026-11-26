@@ -8,13 +8,38 @@ the Rust CLI.
 See the [project roadmap](ROADMAP.md) for completed work, proposed priorities,
 and regression milestones.
 
-Current version: **0.3.0**.
+Current version: **0.4.0**.
 
 <img width="1465" height="796" alt="image" src="https://github.com/user-attachments/assets/da3a2ce2-9e50-4fd2-984a-f8fa627f6e66" />
 
 Models are tested with Latest Solidcraft Insert STEP and tested with a Solidcraft extrude cut:
 
 <img width="1468" height="919" alt="image" src="https://github.com/user-attachments/assets/73ed9180-9828-4894-9ad5-1dd65666a698" />
+
+## What's new in v0.4.0
+
+- Mirror planes now support paired extrusion, loop insertion, crease editing,
+  and surface junction locks.
+- Select and transform whole loops, insert them at a chosen percentage, and
+  slide supported loops along neighboring edges. Shift-click multiple surface
+  or cage edges to apply crease weights together.
+- Undo/Redo, browser session recovery, an unsaved-change indicator, and saved
+  cage locks and symmetry settings improve session continuity.
+- The symmetric enclosure is a regression fixture. Its spline STEP and importer
+  routes work with SolidCraft 0.50.0; the downstream Ø10 mm cut and Cura
+  STL/3MF workflow were verified by the user. Native STL also opens in Cura.
+
+### Quick start
+
+Run `cargo build --locked` and `python3 editor/serve.py`, then open
+[the editor](http://127.0.0.1:8765/). Open
+[the enclosure cage](examples/symmetric-enclosure.cage) through **File → Open**.
+Tab switches the cage and SubD views. Right-drag orbits and the wheel zooms.
+Select points, edges, or faces directly, and use Shift for multiple points or
+edges. The left inspector contains dimensions and crease weights.
+**File → Save** downloads the editable cage, including locks and symmetry.
+**Save As** also offers STL and STEP. Browser recovery uses local storage on
+the same origin and is separate from your downloaded cage.
 
 ## Editor and geometry updates since v0.3.0
 

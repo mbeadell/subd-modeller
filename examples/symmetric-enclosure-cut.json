@@ -1,0 +1,6 @@
+[
+{"command":"sketch.create","params":{"plane":{"origin":[2,3,-70],"x_dir":[1,0,0],"y_dir":[0,1,0]}}},
+{"command":"sketch.circle.center","params":{"center":[0,0],"diameter":10}},
+{"command":"sketch.finish","params":{}},
+{"command":"solid.extrude","params":{"distance":140,"operation":"cut","targets":["SubD"]}}
+]

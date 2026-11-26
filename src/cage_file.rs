@@ -34,6 +34,10 @@ pub fn read_cage(input: impl BufRead) -> Result<(Cage, Option<f64>), Box<dyn Err
     let mut creases = Vec::new();
     for line in lines {
         let line = line?;
+        // Editor metadata is optional and does not alter geometry exchange.
+        if line.starts_with("# editor-state ") {
+            continue;
+        }
         if let Some(edge) = line.strip_prefix("c ") {
             if creases.len() == 252 {
                 return Err("too many creases".into());

@@ -56,7 +56,7 @@
 </style>
 <main>
   <header>
-    <h1>SubD Modeller</h1>
+    <h1>SubD Modeller <span id="dirty-indicator" hidden>•</span></h1>
     <details><summary>File</summary><div class="menu">
       <button id="new">New…</button>
       <button id="open">Open…</button>
@@ -75,7 +75,9 @@
   </header>
   <div class="toolbar" aria-label="Modelling tools">
     <button id="undo" disabled><span class="icon" aria-hidden="true">↶</span> Undo</button>
+    <button id="redo" disabled>↷ Redo</button>
     <label>Move <select id="axis"><option value="">View plane</option><option value="0">X axis</option><option value="1">Y axis</option><option value="2">Z axis</option></select></label>
+    <button id="select-loop" disabled>Select edge loop</button>
     <button id="insert-loop" disabled><span class="icon" aria-hidden="true">⊞</span> Insert edge loop</button>
     <button id="subdivide" disabled>Subdivide</button>
     <button id="extrude" disabled>Extrude face</button>
@@ -102,6 +104,13 @@
         <label>Edge length (mm) <input type="number" step="any" required></label>
         <button>Apply length</button>
       </form>
+      <section id="loop-inspector" hidden>
+        <strong>Loop placement</strong>
+        <label>Insert position (%) <input id="loop-position" type="number" min="1" max="99" value="50" step="any"></label>
+        <button id="apply-loop-position" type="button">Insert at position</button>
+        <label>Slide toward neighbor (%) <input id="loop-slide" type="number" min="-95" max="95" value="0" step="any"></label>
+        <button id="apply-loop-slide" type="button">Apply slide</button>
+      </section>
       <section id="crease-inspector" aria-label="Crease" hidden>
         <strong>Crease</strong>
         <span id="current-sharpness"></span>
@@ -121,7 +130,7 @@
       <button type="button" data-face-axis="Y" aria-pressed="false">Y</button>
       <button type="button" data-face-axis="Z" aria-pressed="true">Z</button>
     </div>
-    <button>Apply face transform</button>
+    <button>Apply transform</button>
   </form>
   </div>
   <aside id="new-dialog" aria-label="New primitive" hidden>
@@ -161,6 +170,7 @@
     </form>
   </dialog>
   <div id="context-actions" hidden>
+    <button id="context-select-loop">Select edge loop</button>
     <button id="context-loop">Insert edge loop</button>
     <button data-mirror-axis="0" aria-pressed="false">Mirror across YZ</button>
     <button data-mirror-axis="1" aria-pressed="false">Mirror across XZ</button>
@@ -254,6 +264,7 @@ for (const button of mirrorButtons) button.onclick = () => {
     mirrorPairs = pairs;
   }
   syncMirrorButtons();
+  scheduleRecovery();
   status.textContent = mirrorPairs ? `Mirror across ${mirrorPlanes[mirrorAxis]} is on` : "";
   draw();
 };
@@ -294,6 +305,36 @@ function surfaceLines(faceCount) {
     for (let edge = 0; edge < 4; edge++) descend(face, edge, 3);
   }
   return lines;
+}
+
+function surfaceEdgeSegments() {
+  if (!surfaceEditing()) return [];
+  const result = [];
+  function descend(face, side, level, edge) {
+    if (!level) {
+      const quad = mesh.faces[face];
+      if (quad) result.push({face, side, edge,
+        a:mesh.points[quad[side]], b:mesh.points[quad[(side+1)%4]]});
+      return;
+    }
+    descend(face*4+side,0,level-1,edge);
+    descend(face*4+(side+1)%4,3,level-1,edge);
+  }
+  cageFaces().forEach((face,index) => face.forEach((a,side) => {
+    const b = face[(side+1)%4];
+    descend(index,side,3,[Math.min(a,b),Math.max(a,b)]);
+  }));
+  return result;
+}
+
+function selectionOrigin() {
+  if (edgePickSource === "cage") return null;
+  const keys = edgeSelectionKeys();
+  if (!keys.length) return null;
+  const segments = surfaceEdgeSegments().filter(segment => keys.includes(edgeKey(...segment.edge)));
+  if (!segments.length) return null;
+  const points = segments.flatMap(segment => [segment.a,segment.b]);
+  return [0,1,2].map(axis => points.reduce((sum,point)=>sum+point[axis],0)/points.length);
 }
 
 function cageEdges() {
@@ -344,7 +385,7 @@ const applyCreaseWeight = document.querySelector("#apply-crease-weight");
 const applyRingWeight = document.querySelector("#apply-ring-weight");
 function applySoftCrease(ring) {
   if (!selectedEdge || !creaseWeight.checkValidity() || !Number.isFinite(creaseWeight.valueAsNumber)) return;
-  toggleCreases(ring ? planarRing(selectedEdge) : [edgeKey(...selectedEdge)], creaseWeight.valueAsNumber);
+  toggleCreases(ring ? planarRing(selectedEdge) : edgeSelectionKeys(), creaseWeight.valueAsNumber);
 }
 applyCreaseWeight.onclick = () => applySoftCrease(false);
 applyRingWeight.onclick = () => applySoftCrease(true);
@@ -388,7 +429,13 @@ function planarRing(edge) {
 }
 
 function toggleCreases(keys, weight) {
-  if (drag || mirrorPairs || !keys.length) return;
+  if (drag || !keys.length) return;
+  if (mirrorPairs) {
+    keys = [...new Set(keys.flatMap(key => {
+      const [a,b] = key.split(":").map(Number);
+      return [key, edgeKey(mirrorPairs[a],mirrorPairs[b])];
+    }))];
+  }
   const remove = weight === 0 || (weight === undefined && keys.every(key => creases.has(key)));
   if (!remove && surfaceLocks.size) {
     status.textContent = "Unlock surface junctions before adding creases";
@@ -403,15 +450,196 @@ function toggleCreases(keys, weight) {
   refresh();
 }
 
-creaseButton.onclick = () => { if (selectedEdge) toggleCreases([edgeKey(...selectedEdge)]); };
+creaseButton.onclick = () => { if (selectedEdge) toggleCreases(edgeSelectionKeys()); };
 creaseRing.onclick = () => { if (selectedEdge) toggleCreases(planarRing(selectedEdge)); };
+
+let selectedLoop = null;
+let selectedEdges = new Set();
+function edgeSelectionKeys() {
+  return selectedLoop ?? (selectedEdges.size ? [...selectedEdges] : selectedEdge ? [edgeKey(...selectedEdge)] : []);
+}
+const selectLoopButton = document.querySelector("#select-loop");
+
+function edgeLoop(edge) {
+  const planar = planarRing(edge);
+  if (planar.length) return planar;
+  const faces = cageFaces();
+  const edges = cageEdges();
+  const visited = new Set([edgeKey(...edge)]);
+  let previous = edge[0], vertex = edge[1];
+  while (vertex !== edge[0]) {
+    const neighbors = edges.filter(pair => pair.includes(vertex))
+      .map(pair => pair.find(index => index !== vertex));
+    if (neighbors.length !== 4) return [];
+    const adjacent = new Set();
+    for (const face of faces) {
+      const corner = face.indexOf(vertex);
+      if (corner < 0) continue;
+      const a = face[(corner+1)%4], b = face[(corner+3)%4];
+      if (a === previous) adjacent.add(b);
+      if (b === previous) adjacent.add(a);
+    }
+    const candidates = neighbors.filter(index => index !== previous && !adjacent.has(index));
+    if (candidates.length !== 1) return [];
+    const next = candidates[0], key = edgeKey(vertex,next);
+    if (visited.has(key)) return [];
+    visited.add(key);
+    previous = vertex;
+    vertex = next;
+  }
+  return [...visited];
+}
+
+function loopVertices() {
+  const keys = edgeSelectionKeys();
+  return keys.length ? [...new Set(keys.flatMap(key => key.split(":").map(Number)))] : null;
+}
+
+function selectEdgeLoop(edge) {
+  const loop = edge ? edgeLoop(edge) : [];
+  if (!loop.length) {
+    status.textContent = "No unambiguous closed loop through this edge";
+    return;
+  }
+  selectedEdges.clear();
+  selectedLoop = loop;
+  loopSlide.value="0";
+  selectedEdge = edge;
+  selected = selectedFace = null;
+  selectedVertices.clear();
+  draw();
+}
+selectLoopButton.onclick = () => selectEdgeLoop(selectedEdge);
+
+function mirroredStrip(edge, faces) {
+  const strip = traceLoop(edge,faces);
+  if (!strip || !mirrorPairs) return strip;
+  const reflected = traceLoop(edge.map(index => mirrorPairs[index]),faces);
+  if (!reflected) return null;
+  for (const [face,side] of reflected) {
+    if (strip.has(face) && strip.get(face)%2 !== side%2) return null;
+    strip.set(face,side);
+  }
+  return strip;
+}
+
+const loopInspector = document.querySelector("#loop-inspector");
+const loopPosition = document.querySelector("#loop-position");
+const loopSlide = document.querySelector("#loop-slide");
+const insertAtPosition = document.querySelector("#apply-loop-position");
+const slideLoopButton = document.querySelector("#apply-loop-slide");
+loopPosition.oninput = loopSlide.oninput = () => draw();
+insertAtPosition.onclick = () => insertLoop.onclick();
+slideLoopButton.onclick = () => {
+  const edits = slidePositions();
+  if (!edits) { status.textContent = "This loop has no unambiguous slide rails"; return; }
+  if ([...edits.keys()].some(index => lockedVertices.has(index))) {
+    status.textContent = "Unlock the loop and its mirrored vertices before sliding";
+    return;
+  }
+  remember(cage.map(point=>[...point]));
+  for (const [index,point] of edits) cage[index]=point;
+  loopSlide.value="0";
+  draw();
+  refresh();
+};
+
+function insertionPositions(edge, faces, strip, fraction) {
+  const positions = new Map();
+  function walk(start, weight) {
+    const queue = [[start[0],start[1],weight]];
+    while (queue.length) {
+      const [a,b,t]=queue.pop();
+      const key=edgeKey(a,b);
+      const point=cage[a].map((value,axis)=>value*(1-t)+cage[b][axis]*t);
+      if (positions.has(key)) {
+        if (positions.get(key).some((value,axis)=>Math.abs(value-point[axis])>1e-8)) return false;
+        continue;
+      }
+      positions.set(key,point);
+      for (const [index] of strip) {
+        const face=faces[index];
+        for (let side=0;side<4;side++) {
+          if (face[side]===a && face[(side+1)%4]===b)
+            queue.push([face[(side+3)%4],face[(side+2)%4],t]);
+          if (face[side]===b && face[(side+1)%4]===a)
+            queue.push([face[(side+2)%4],face[(side+3)%4],t]);
+        }
+      }
+    }
+    return true;
+  }
+  if (!walk(edge,fraction)) return null;
+  if (mirrorPairs && !walk(edge.map(index=>mirrorPairs[index]),fraction)) return null;
+  return positions;
+}
+
+function slidePositions() {
+  if (!selectedLoop || !loopSlide.checkValidity()) return null;
+  const fraction=loopSlide.valueAsNumber/100;
+  const vertices=loopVertices();
+  const loopSet=new Set(vertices);
+  const faces=cageFaces();
+  const railA=new Map(), railB=new Map();
+  const first=vertices[0];
+  const neighbors=cageEdges().filter(edge=>edge.includes(first))
+    .map(edge=>edge.find(index=>index!==first)).filter(index=>!loopSet.has(index));
+  if (neighbors.length!==2) return null;
+  railA.set(first,neighbors[0]); railB.set(first,neighbors[1]);
+  const queue=[first];
+  while (queue.length) {
+    const a=queue.pop();
+    for (const key of selectedLoop) {
+      const pair=key.split(":").map(Number);
+      if (!pair.includes(a)) continue;
+      const b=pair.find(index=>index!==a);
+      for (const [rail,other] of [[railA,railB],[railB,railA]]) {
+        const matches=faces.filter(face=>face.includes(a)&&face.includes(b)&&face.includes(rail.get(a)));
+        if (matches.length!==1) return null;
+        const candidate=matches[0].filter(index=>index!==a&&index!==b&&index!==rail.get(a));
+        if (candidate.length!==1||loopSet.has(candidate[0])) return null;
+        if (rail.has(b)&&rail.get(b)!==candidate[0]) return null;
+        if (!rail.has(b)) { rail.set(b,candidate[0]); if(rail===railA) queue.push(b); }
+      }
+    }
+  }
+  if (railA.size!==vertices.length||railB.size!==vertices.length) return null;
+  const edits=new Map();
+  const rail=fraction<0?railA:railB;
+  for(const index of vertices) {
+    const target=cage[rail.get(index)];
+    edits.set(index,cage[index].map((value,axis)=>value+(target[axis]-value)*Math.abs(fraction)));
+  }
+  if(mirrorPairs) for(const [index,point] of [...edits]) {
+    const partner=mirrorPairs[index];
+    const reflected=point.map((value,axis)=>axis===mirrorAxis?-value:value);
+    if(edits.has(partner)&&edits.get(partner).some((value,axis)=>Math.abs(value-reflected[axis])>1e-8)) return null;
+    edits.set(partner,reflected);
+  }
+  return edits;
+}
 
 insertLoop.onclick = () => {
   if (drag || !selectedEdge) return;
   const faces = cageFaces();
-  const strip = traceLoop(selectedEdge, faces);
+  const strip = mirroredStrip(selectedEdge, faces);
   if (!strip || faces.length + strip.size > 126) return;
-  remember(cage.map(point => [...point]));
+  if (!loopPosition.checkValidity() || !Number.isFinite(loopPosition.valueAsNumber)) return;
+  const placements=insertionPositions(selectedEdge,faces,strip,loopPosition.valueAsNumber/100);
+  if (!placements) { status.textContent="This placement conflicts with mirror symmetry; try 50%"; return; }
+  const splitEdges = new Set();
+  for (const [index,side] of strip) {
+    const face = faces[index];
+    splitEdges.add(edgeKey(face[side],face[(side+1)%4]));
+    splitEdges.add(edgeKey(face[(side+2)%4],face[(side+3)%4]));
+  }
+  if (cage.length + splitEdges.size > 128) {
+    status.textContent = "Cage topology limit reached";
+    return;
+  }
+  const before = {points:cage, faces:explicitFaces, creases};
+  cage = cage.slice();
+  creases = new Map(creases);
   const midpoints = new Map();
   const midpoint = (a, b) => {
     const key = edgeKey(a, b);
@@ -423,7 +651,7 @@ insertLoop.onclick = () => {
         creases.set(edgeKey(a,middle),weight);
         creases.set(edgeKey(b,middle),weight);
       }
-      cage.push(cage[a].map((value, axis) => (value + cage[b][axis]) / 2));
+      cage.push(placements.get(key));
     }
     return midpoints.get(key);
   };
@@ -434,7 +662,27 @@ insertLoop.onclick = () => {
     const m = midpoint(a,b), n = midpoint(c,d);
     return [[a,m,n,d], [m,b,c,n]];
   });
+  const pairs = mirrorPairs ? findMirrorPairs() : null;
+  if (mirrorPairs && !pairs) {
+    cage = before.points;
+    explicitFaces = before.faces;
+    creases = before.creases;
+    status.textContent = "This loop cannot be split symmetrically";
+    return;
+  }
+  const after = {points:cage, faces:explicitFaces, creases};
+  cage = before.points;
+  explicitFaces = before.faces;
+  creases = before.creases;
+  remember(cage);
+  cage = after.points;
+  explicitFaces = after.faces;
+  creases = after.creases;
+  mirrorPairs = pairs;
+  selectedLoop = null;
+  selectedEdges.clear();
   selectedEdge = null;
+  syncMirrorButtons();
   draw();
   refresh();
 };
@@ -618,7 +866,7 @@ function edgeVector() {
 
 function syncEdgeDimension() {
   edgeForm.hidden = selectedEdge === null || !!splinePreview;
-  const enabled = !edgeForm.hidden && selectedEdge && !mirrorPairs && !selectedEdge.some(index => lockedVertices.has(index)) && width.validity.valid && !drag;
+  const enabled = !edgeForm.hidden && edgeSelectionKeys().length === 1 && selectedEdge && !mirrorPairs && !selectedEdge.some(index => lockedVertices.has(index)) && width.validity.valid && !drag;
   applyLength.disabled = edgeLength.disabled = !enabled;
   if (document.activeElement !== edgeLength) {
     edgeLength.value = enabled ? Math.hypot(...edgeVector()) * (width.valueAsNumber / 2) : "";
@@ -650,30 +898,50 @@ edgeForm.onsubmit = event => {
   refresh();
 };
 
+let edgePickSource = "surface";
 function pickEdge(x, y) {
-  const corners = cage.map(project);
   const hits = [];
-  for (const edge of cageEdges()) {
-    const [a, b] = edge.map(index => corners[index]);
+  const segments = [
+    ...(surfaceEditing() ? surfaceEdgeSegments().map(segment => ({...segment, source:"surface"})) : []),
+    ...(isOn(showCage) ? cageEdges().map(edge => ({edge,a:cage[edge[0]],b:cage[edge[1]],source:"cage"})) : [])
+  ];
+  for (const segment of segments) {
+    const edge = segment.edge;
+    const [a,b] = [segment.a,segment.b].map(project);
     const dx = b[0] - a[0], dy = b[1] - a[1];
     const span = dx * dx + dy * dy;
     if (span === 0) continue;
     const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / span));
     const distance = Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy);
-    if (distance <= 9) hits.push({edge, distance, depth: a[2] + t * (b[2] - a[2])});
+    if (distance <= 9) hits.push({edge, source:segment.source, distance, depth: a[2] + t * (b[2] - a[2])});
   }
   hits.sort((a, b) => a.distance - b.distance || b.depth - a.depth);
+  if (hits[0]) edgePickSource = hits[0].source;
   return hits[0]?.edge ?? null;
 }
 
 const axis = document.querySelector("#axis");
 const undo = document.querySelector("#undo");
 const history = [];
+const future = [];
+const redo = document.querySelector("#redo");
+
+function snapshot(points = cage) {
+  return {points:points.map(point=>[...point]), faces:explicitFaces,
+    creases:new Map(creases), locks:new Set(lockedVertices), surfaceLocks:new Map(surfaceLocks),
+    width:width.value, mirrored:!!mirrorPairs, mirrorAxis};
+}
+
+function syncHistory() {
+  undo.disabled = !history.length;
+  redo.disabled = !future.length;
+}
 
 function remember(points) {
-  history.push({points, faces: explicitFaces, creases: new Map(creases), locks: new Set(lockedVertices), surfaceLocks: new Map(surfaceLocks), width: width.value});
+  future.length=0;
+  history.push(snapshot(points));
   if (history.length > 50) history.shift();
-  undo.disabled = false;
+  syncHistory();
 }
 let pending = false;
 let revision = 0;
@@ -755,7 +1023,13 @@ function editingPoints() {
 
 function axisHandles() {
   let origin;
-  if (selectedEdge && isOn(showCage)) {
+  const surfaceOrigin = selectionOrigin();
+  if (surfaceOrigin) {
+    origin = surfaceOrigin;
+  } else if (selectedLoop && isOn(showCage)) {
+    const points = loopVertices().map(index => cage[index]);
+    origin = [0,1,2].map(axis => points.reduce((sum, point) => sum + point[axis], 0)/points.length);
+  } else if (selectedEdge && isOn(showCage)) {
     const [a, b] = selectedEdge.map(index => cage[index]);
     origin = a.map((value, axis) => (value + b[axis]) / 2);
   } else if (selectedFace !== null) {
@@ -784,7 +1058,7 @@ function drawAxisHandles() {
   for (const {index, color, x, y, dx, dy} of axisHandles()) {
     const tipX = x + 54 * dx, tipY = y + 54 * dy;
     context.strokeStyle = context.fillStyle = color;
-    context.lineWidth = drag?.axis === String(index) || (selectedFace !== null && index === faceRotationAxis) ? 4 : 2;
+    context.lineWidth = drag?.axis === String(index) || ((selectedFace !== null || edgeSelectionKeys().length > 1) && index === faceRotationAxis) ? 4 : 2;
     context.beginPath();
     context.moveTo(x + 9 * dx, y + 9 * dy);
     context.lineTo(tipX, tipY);
@@ -848,8 +1122,8 @@ for (const [index, button] of faceAxes.entries()) {
 }
 faceTransform.onsubmit = event => {
   event.preventDefault();
-  if (drag || selectedFace === null || splinePreview) return;
-  const face = cageFaces()[selectedFace];
+  if (drag || (selectedFace === null && edgeSelectionKeys().length < 2) || splinePreview) return;
+  const face = loopVertices() ?? cageFaces()[selectedFace];
   const affected = new Set(face.flatMap(index => mirrorPairs ? [index, mirrorPairs[index]] : [index]));
   if ([...affected].some(index => lockedVertices.has(index))) {
     status.textContent = "Unlock the face vertices before transforming";
@@ -905,7 +1179,11 @@ function updateInspector() {
   }
   const key = edgeKey(...edge);
   const weight = creases.get(key) ?? 0;
-  currentSharpness.textContent = weight === Infinity ? "Current: Hard crease" : `Current: ${weight}`;
+  const keys = edgeSelectionKeys();
+  const weights = keys.map(key => creases.get(key) ?? 0);
+  const value = weights.every(value => value === weight)
+    ? (weight === Infinity ? "Hard crease" : String(weight)) : "Mixed";
+  currentSharpness.textContent = `${keys.length} edge${keys.length === 1 ? "" : "s"} · ${value}`;
   const signature = key + ":" + weight;
   if (displayedCrease !== signature) {
     creaseWeight.value = weight === 0 || weight === Infinity ? 1 : weight;
@@ -915,7 +1193,10 @@ function updateInspector() {
 
 function draw() {
   updateInspector();
-  faceTransform.hidden = selectedFace === null || !!splinePreview || !!newPreview;
+  loopInspector.hidden = !selectedEdge || !!splinePreview;
+  insertAtPosition.disabled = insertLoop.disabled;
+  slideLoopButton.disabled = !selectedLoop || !slidePositions();
+  faceTransform.hidden = (selectedFace === null && edgeSelectionKeys().length < 2) || !!splinePreview || !!newPreview;
   if (!faceTransform.hidden) {
     const handle = axisHandles()[0];
     if (handle) {
@@ -968,20 +1249,53 @@ function draw() {
   }
 
   const corners = cage.map(project);
-  const highlighted = selectedEdge ?? (selectedFace === null ? [...selectedVertices] : cageFaces()[selectedFace]);
+  const highlighted = loopVertices() ?? selectedEdge ?? (selectedFace === null ? [...selectedVertices] : cageFaces()[selectedFace]);
 
-  extrude.disabled = !!mirrorPairs || selectedFace === null;
+  extrude.disabled = selectedFace === null;
   const facesForLoop = cageFaces();
   const ring = selectedEdge ? planarRing(selectedEdge) : [];
-  creaseButton.disabled = !selectedEdge || !!mirrorPairs;
-  creaseButton.textContent = selectedEdge && creases.has(edgeKey(...selectedEdge)) ? "Remove crease" : "Crease edge";
-  creaseRing.disabled = !ring.length || !!mirrorPairs;
+  selectLoopButton.disabled = !selectedEdge || !edgeLoop(selectedEdge).length;
+  creaseButton.disabled = !selectedEdge;
+  creaseButton.textContent = selectedEdge && edgeSelectionKeys().every(key => creases.has(key)) ? "Remove crease" : "Crease edges";
+  creaseRing.disabled = !ring.length;
   applyCreaseWeight.disabled = creaseButton.disabled;
   applyRingWeight.disabled = creaseRing.disabled;
   creaseRing.textContent = ring.length && ring.every(key => creases.has(key)) ? "Uncrease ring" : "Crease ring";
-  const loop = selectedEdge ? traceLoop(selectedEdge, facesForLoop) : null;
-  insertLoop.disabled = !!mirrorPairs || !loop || facesForLoop.length + loop.size > 126;
+  const loop = selectedEdge ? mirroredStrip(selectedEdge, facesForLoop) : null;
+  insertLoop.disabled = !loop || facesForLoop.length + loop.size > 126;
+  insertAtPosition.disabled = insertLoop.disabled;
   subdivide.disabled = selectedFace === null && insertLoop.disabled;
+  if (!splinePreview && surfaceEditing()) {
+    const highlightedEdges = edgeSelectionKeys();
+    for (const segment of surfaceEdgeSegments()) {
+      const key = edgeKey(...segment.edge);
+      const active = highlightedEdges.includes(key);
+      if (!active && !creases.has(key)) continue;
+      const [a,b] = [segment.a,segment.b].map(project);
+      context.beginPath();
+      context.moveTo(a[0],a[1]);
+      context.lineTo(b[0],b[1]);
+      context.strokeStyle = active ? "#fff" : "#ff8bc7";
+      context.lineWidth = active ? 3 : 2;
+      context.stroke();
+    }
+  }
+  const slidePreview = selectedLoop && Number(loopSlide.value) !== 0 ? slidePositions() : null;
+  if (slidePreview) {
+    context.strokeStyle="#77dbff";
+    context.lineWidth=3;
+    const keys=new Set(selectedLoop);
+    if(mirrorPairs) for(const key of selectedLoop) {
+      const [a,b]=key.split(":").map(Number);
+      keys.add(edgeKey(mirrorPairs[a],mirrorPairs[b]));
+    }
+    for(const key of keys) {
+      const [a,b]=key.split(":").map(Number);
+      if(!slidePreview.has(a)||!slidePreview.has(b)) continue;
+      const [p,q]=[slidePreview.get(a),slidePreview.get(b)].map(project);
+      context.beginPath();context.moveTo(p[0],p[1]);context.lineTo(q[0],q[1]);context.stroke();
+    }
+  }
   drawMirrorPlane();
   drawOrientation();
   if (splinePreview) return;
@@ -991,12 +1305,12 @@ function draw() {
       context.lineWidth = 2;
       for (const [index, side] of loop) {
         const face = facesForLoop[index];
-        const midpoint = offset => {
-          const a = corners[face[(side + offset) % 4]];
-          const b = corners[face[(side + offset + 1) % 4]];
-          return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        };
-        context.beginPath();
+        const placements = insertionPositions(selectedEdge,facesForLoop,loop,loopPosition.valueAsNumber/100);
+      const midpoint = offset => {
+        const a=face[(side+offset)%4], b=face[(side+offset+1)%4];
+        return project(placements?.get(edgeKey(a,b)) ?? cage[a].map((value,axis)=>(value+cage[b][axis])/2));
+      };
+      context.beginPath();
         context.moveTo(...midpoint(0));
         context.lineTo(...midpoint(2));
         context.stroke();
@@ -1005,7 +1319,7 @@ function draw() {
     context.strokeStyle = "#f9ca83";
     context.lineWidth = 1.5;
     for (const [a, b] of cageEdges()) {
-      const active = selectedEdge?.[0] === a && selectedEdge[1] === b;
+      const active = edgeSelectionKeys().includes(edgeKey(a,b));
       context.strokeStyle = active ? (drag?.axis ? axisColors[Number(drag.axis)] : "#fff") : creases.has(edgeKey(a,b)) ? "#ff8bc7" : "#f9ca83";
       context.lineWidth = active ? 4 : 1.5;
       context.beginPath();
@@ -1114,6 +1428,7 @@ async function checkStl(blob) {
 }
 
 async function refresh() {
+  scheduleRecovery();
   if (splinePreview) {
     splinePreview = null;
     splineButton.setAttribute("aria-pressed", "false");
@@ -1155,6 +1470,11 @@ const contextCrease = document.querySelector("#context-crease");
 const contextCreaseRing = document.querySelector("#context-crease-ring");
 let contextVertex, contextFace, contextEdge;
 
+const contextSelectLoop = document.querySelector("#context-select-loop");
+contextSelectLoop.onclick = () => {
+  contextActions.hidden = true;
+  selectEdgeLoop(contextEdge);
+};
 const contextLoop = document.querySelector("#context-loop");
 contextLoop.onclick = () => {
   if (contextLoop.disabled || drag) return;
@@ -1167,7 +1487,7 @@ contextLoop.onclick = () => {
 
 contextCrease.onclick = () => {
   contextActions.hidden = true;
-  if (contextEdge) toggleCreases([edgeKey(...contextEdge)]);
+  if (contextEdge) toggleCreases(edgeSelectionKeys().includes(edgeKey(...contextEdge)) ? edgeSelectionKeys() : [edgeKey(...contextEdge)]);
 };
 contextCreaseRing.onclick = () => {
   contextActions.hidden = true;
@@ -1177,6 +1497,8 @@ contextCreaseRing.onclick = () => {
 function selectContextFace() {
   selected = null;
   selectedVertices.clear();
+  selectedLoop = null;
+  selectedEdges.clear();
   selectedEdge = null;
   selectedFace = contextFace;
   contextActions.hidden = true;
@@ -1184,20 +1506,27 @@ function selectContextFace() {
 }
 
 lockPoint.onclick = () => {
-  if (surfaceEditing() && (creases.size || mirrorPairs) && !lockedVertices.has(contextVertex)) {
-    status.textContent = "Surface locks require a smooth cage with mirror off";
+  if (surfaceEditing() && creases.size && !lockedVertices.has(contextVertex)) {
+    status.textContent = "Surface locks require a smooth cage";
     contextActions.hidden = true;
     return;
   }
   remember(cage.map(point => [...point]));
-  if (lockedVertices.delete(contextVertex)) {
-    surfaceLocks.delete(contextVertex);
-  } else {
-    lockedVertices.add(contextVertex);
-    if (surfaceEditing()) surfaceLocks.set(contextVertex, limitPosition(limitStencil(contextVertex)));
+  const indices = new Set([contextVertex]);
+  if (mirrorPairs) indices.add(mirrorPairs[contextVertex]);
+  const unlocking = lockedVertices.has(contextVertex);
+  for (const index of indices) {
+    if (unlocking) {
+      lockedVertices.delete(index);
+      surfaceLocks.delete(index);
+    } else {
+      lockedVertices.add(index);
+      if (surfaceEditing()) surfaceLocks.set(index, limitPosition(limitStencil(index)));
+    }
   }
   contextActions.hidden = true;
   draw();
+  scheduleRecovery();
 };
 selectFaceAction.onclick = selectContextFace;
 subdivideFaceAction.onclick = () => {
@@ -1220,10 +1549,12 @@ function openContextActions(event) {
   }).filter(hit => hit.distance <= 13)
     .sort((a,b) => a.distance - b.distance || b.depth - a.depth)[0]?.index;
   contextFace = pickFace(x, y);
-  contextEdge = contextVertex === undefined && isOn(showCage) ? pickEdge(x, y) : null;
-  const strip = contextEdge ? traceLoop(contextEdge,cageFaces()) : null;
+  contextEdge = contextVertex === undefined ? pickEdge(x, y) : null;
+  const strip = contextEdge ? mirroredStrip(contextEdge,cageFaces()) : null;
+  contextSelectLoop.hidden = !contextEdge;
+  contextSelectLoop.disabled = !contextEdge || !edgeLoop(contextEdge).length;
   contextLoop.hidden = !contextEdge;
-  contextLoop.disabled = !!mirrorPairs || !strip || cageFaces().length + strip.size > 126;
+  contextLoop.disabled = !strip || cageFaces().length + strip.size > 126;
   contextCrease.hidden = !contextEdge;
   contextCrease.textContent = contextEdge && creases.has(edgeKey(...contextEdge))
     ? "Remove crease" : "Crease edge";
@@ -1255,6 +1586,16 @@ canvas.addEventListener("keydown", event => {
   }
 });
 
+canvas.addEventListener("dblclick", event => {
+  if (splinePreview || newPreview || drag) return;
+  const bounds = canvas.getBoundingClientRect();
+  const edge = pickEdge(event.clientX-bounds.left,event.clientY-bounds.top);
+  if (edge) {
+    selectEdgeLoop(edge);
+    status.textContent = "Loop selected · drag X, Y, or Z to move the entire loop";
+  }
+});
+
 canvas.addEventListener("pointerdown", event => {
   if ((splinePreview && event.button !== 2) || drag || ![0, 2].includes(event.button) || (newPreview && event.button !== 2)) return;
   canvas.focus({preventScroll: true});
@@ -1268,13 +1609,30 @@ canvas.addEventListener("pointerdown", event => {
   hits.sort((a, b) => a.distance - b.distance || b.depth - a.depth);
   if (event.button === 0 && handle === undefined) {
     const vertex = hits[0]?.index;
-    if (!event.shiftKey || vertex === undefined) selectedVertices.clear();
     if (vertex !== undefined) {
+      selectedLoop = null;
+      selectedEdges.clear();
+      selectedEdge = null;
+      if (!event.shiftKey) selectedVertices.clear();
       if (event.shiftKey && selectedVertices.has(vertex)) selectedVertices.delete(vertex);
       else selectedVertices.add(vertex);
+      selected = [...selectedVertices].at(-1) ?? null;
+    } else {
+      const edge = pickEdge(x,y);
+      if (!event.shiftKey || !edge) selectedEdges.clear();
+      else if (selectedLoop) for (const key of selectedLoop) selectedEdges.add(key);
+      else if (selectedEdge) selectedEdges.add(edgeKey(...selectedEdge));
+      selectedLoop = null;
+      selectedVertices.clear();
+      selected = null;
+      if (edge) {
+        const key = edgeKey(...edge);
+        if (event.shiftKey && selectedEdges.has(key)) selectedEdges.delete(key);
+        else selectedEdges.add(key);
+      }
+      const last = [...selectedEdges].at(-1);
+      selectedEdge = last ? last.split(":").map(Number) : null;
     }
-    selected = [...selectedVertices].at(-1) ?? null;
-    selectedEdge = selected === null && isOn(showCage) ? pickEdge(x, y) : null;
     selectedFace = selected === null && !selectedEdge && !event.shiftKey ? pickFace(x, y) : null;
     if (selected === null || event.shiftKey) {
       draw();
@@ -1285,7 +1643,7 @@ canvas.addEventListener("pointerdown", event => {
   if (event.button === 2) drag.orbitStart = [event.clientX, event.clientY];
   if (event.button === 0) {
     drag.axis = handle === undefined ? axis.value : String(handle);
-    const group = selectedEdge ?? (selectedFace === null ? null : cageFaces()[selectedFace]);
+    const group = loopVertices() ?? selectedEdge ?? (selectedFace === null ? null : cageFaces()[selectedFace]);
     drag.points = group ? (group.some(index => lockedVertices.has(index) ||
       lockedVertices.has(mirrorPairs?.[index])) ? [] : group) :
       [...selectedVertices].filter(index => !lockedVertices.has(index));
@@ -1352,31 +1710,42 @@ canvas.addEventListener("lostpointercapture", () => {
   draw();
 });
 axis.addEventListener("change", draw);
-undo.onclick = () => {
-  if (newPreview || drag || !history.length) return;
-  const previous = history.pop();
-  cage = previous.points;
+function restoreSnapshot(previous) {
+  cage = previous.points.map(point=>[...point]);
   explicitFaces = previous.faces;
-  creases = previous.creases;
-  if (mirrorPairs) mirrorPairs = findMirrorPairs();
+  creases = new Map(previous.creases);
+  mirrorAxis = previous.mirrorAxis;
+  mirrorPairs = previous.mirrored ? findMirrorPairs() : null;
   syncMirrorButtons();
-  lockedVertices = previous.locks;
-  surfaceLocks = previous.surfaceLocks;
+  lockedVertices = new Set(previous.locks);
+  surfaceLocks = new Map(previous.surfaceLocks);
   width.value = previous.width;
   selected = null;
   selectedVertices.clear();
   selectedFace = null;
+  selectedLoop = null;
+  selectedEdges.clear();
   selectedEdge = null;
-  undo.disabled = !history.length;
+  syncHistory();
   draw();
   refresh();
+}
+
+undo.onclick = () => {
+  if (newPreview || drag || !history.length) return;
+  future.push(snapshot());
+  restoreSnapshot(history.pop());
+};
+redo.onclick = () => {
+  if (newPreview || drag || !future.length) return;
+  history.push(snapshot());
+  restoreSnapshot(future.pop());
 };
 window.addEventListener("keydown", event => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z" &&
-      !event.shiftKey && !event.target.matches("input, select") && !undo.disabled) {
-    event.preventDefault();
-    undo.click();
-  }
+  if (!(event.metaKey || event.ctrlKey) || event.target.matches("input, select, textarea")) return;
+  const key=event.key.toLowerCase();
+  const action=key==="z" ? (event.shiftKey ? redo : undo) : key==="y" ? redo : null;
+  if (action && !action.disabled) { event.preventDefault(); action.click(); }
 });
 document.querySelector("#reset").onclick = () => {
   if (drag) return;
@@ -1384,6 +1753,8 @@ document.querySelector("#reset").onclick = () => {
   selected = null;
   selectedVertices.clear();
   selectedFace = null;
+  selectedLoop = null;
+  selectedEdges.clear();
   selectedEdge = null;
   explicitFaces = null;
   creases.clear();
@@ -1425,15 +1796,35 @@ function pickFace(x, y) {
   return hit;
 }
 
-function subdivideMirroredFace() {
+function subdivideMirroredFace(extruding = false) {
   const faces = cageFaces();
   const reflected = faces[selectedFace].map(vertex => mirrorPairs[vertex]);
   const other = faces.findIndex(face => reflected.every(vertex => face.includes(vertex)));
   if (other < 0) return;
   const targets = new Set([selectedFace, other]);
+  if ([...targets].some(index => faces[index].some(vertex => lockedVertices.has(vertex)))) {
+    status.textContent = "Unlock both faces before changing their topology";
+    return;
+  }
   if (faces.length + 4 * targets.size > 126 || cage.length + 4 * targets.size > 128) {
     status.textContent = "Cage topology limit reached";
     return;
+  }
+  const depth = document.querySelector("#depth").valueAsNumber / (width.valueAsNumber / 2);
+  const normals = new Map();
+  if (extruding) {
+    for (const index of targets) {
+      const [a,b,c,d] = faces[index].map(vertex => cage[vertex]);
+      const [x,y,z] = c.map((value,i) => value-a[i]);
+      const [u,v,w] = d.map((value,i) => value-b[i]);
+      const normal = [y*w-z*v,z*u-x*w,x*v-y*u];
+      const length = Math.hypot(...normal);
+      if (!(length > 0) || !Number.isFinite(depth) || depth === 0) {
+        status.textContent = "Enter a nonzero depth for a face with a defined normal";
+        return;
+      }
+      normals.set(index,normal.map(value => value*depth/length));
+    }
   }
   const previousCage = cage;
   const previousFaces = explicitFaces;
@@ -1444,7 +1835,15 @@ function subdivideMirroredFace() {
     const points = face.map(vertex => cage[vertex]);
     const center = [0,1,2].map(axis => points.reduce((sum, point) => sum + point[axis], 0) / 4);
     const inner = points.map((point, i) => cage.length + i);
-    cage.push(...points.map(point => point.map((value, axis) => (value + center[axis]) / 2)));
+    const newPoints = points.map(point => point.map((value, axis) => extruding
+      ? value + normals.get(index)[axis] : (value + center[axis]) / 2));
+    if (newPoints.some(point => point.some(value => !(Math.abs(value) <= 1e12)))) {
+      cage = previousCage;
+      explicitFaces = previousFaces;
+      status.textContent = "Face edit is outside the cage range";
+      return;
+    }
+    cage.push(...newPoints);
     const sides = face.map((vertex, i) => {
       const next = (i + 1) % 4;
       return [vertex, face[next], inner[next], inner[i]];
@@ -1473,7 +1872,7 @@ function subdivideMirroredFace() {
 function editFace(extruding) {
   if (drag || selectedFace === null) return;
   if (mirrorPairs) {
-    if (!extruding) subdivideMirroredFace();
+    subdivideMirroredFace(extruding);
     return;
   }
   const faces = cageFaces();
@@ -1581,10 +1980,13 @@ let newPreview = null;
 
 document.querySelector("#new").onclick = () => {
   if (drag || newPreview) return;
+  storeRecovery();
   newPreview = { cage, explicitFaces, mesh, mirrorPairs, width: width.value, selected,
-    vertices: [...selectedVertices], selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases };
+    vertices: [...selectedVertices], selectedEdges: new Set(selectedEdges), selectedLoop, selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases };
   mirrorPairs = null;
   syncMirrorButtons();
+  selectedLoop = null;
+  selectedEdges.clear();
   selected = selectedEdge = selectedFace = null;
   selectedVertices.clear();
   lockedVertices = new Set();
@@ -1622,13 +2024,14 @@ function finishPrimitive(create) {
   const previous = newPreview;
   newPreview = null;
   if (create) {
-    history.push({points: previous.cage, faces: previous.explicitFaces,
+    future.length=0;
+    history.push({mirrored:!!previous.mirrorPairs, mirrorAxis, points: previous.cage, faces: previous.explicitFaces,
       locks: previous.lockedVertices, creases: previous.creases, surfaceLocks: previous.surfaceLocks, width: previous.width});
     if (history.length > 50) history.shift();
-    undo.disabled = false;
+    syncHistory();
     document.querySelector("#file-name").value = "untitled";
   } else {
-    ({cage, explicitFaces, mesh, mirrorPairs, selected, selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases} = previous);
+    ({cage, explicitFaces, mesh, mirrorPairs, selected, selectedLoop, selectedEdges, selectedEdge, selectedFace, lockedVertices, surfaceLocks, creases} = previous);
     width.value = previous.width;
     syncMirrorButtons();
     for (const vertex of previous.vertices) selectedVertices.add(vertex);
@@ -1671,11 +2074,38 @@ document.querySelector("#save-as").onclick = () => {
   saveDialog.showModal();
 };
 
+function cageEditorState() {
+  return {version:1, locks:[...lockedVertices], surfaceLocks:[...surfaceLocks],
+    mirrorAxis, mirrored:!!mirrorPairs};
+}
+
+function parseEditorState(lines, count, hasCreases) {
+  const records=lines.filter(line=>line.startsWith("# editor-state "));
+  if (!records.length) return {locks:[],surfaceLocks:[],mirrorAxis:0,mirrored:false};
+  if(records.length!==1) throw new Error("Duplicate editor state");
+  const state=JSON.parse(records[0].slice("# editor-state ".length));
+  const index=i=>Number.isInteger(i)&&i>=0&&i<count;
+  if(state.version!==1 || ![0,1,2].includes(state.mirrorAxis) || typeof state.mirrored!=="boolean" ||
+    !Array.isArray(state.locks)||state.locks.length>count||!state.locks.every(index)||
+    new Set(state.locks).size!==state.locks.length ||
+    !Array.isArray(state.surfaceLocks)||state.surfaceLocks.length>count ||
+    !state.surfaceLocks.every(entry=>Array.isArray(entry)&&entry.length===2&&index(entry[0])&&
+      state.locks.includes(entry[0])&&Array.isArray(entry[1])&&entry[1].length===3&&
+      entry[1].every(value=>typeof value==="number"&&Number.isFinite(value)&&Math.abs(value)<=1e12)) ||
+    new Set(state.surfaceLocks.map(entry=>entry[0])).size!==state.surfaceLocks.length ||
+    (state.surfaceLocks.length && hasCreases)) {
+    throw new Error("Invalid editor locks or mirror settings");
+  }
+  return state;
+}
+
 function saveCage() {
   download(new Blob([`${explicitFaces ? "subd-quads 1" : cage.length === 8 ? "subd-cube 2" : "subd-sections 1"}\nwidth-mm ${width.valueAsNumber}\n`,
     ...cage.map(point => point.join(" ") + "\n"),
     ...(explicitFaces || []).map(face => "q " + face.join(" ") + "\n"),
-    ...creasePairs().map(edge => "c " + edge.join(" ") + "\n")]), `${fileName.value.trim() || "untitled"}.cage`);
+    ...creasePairs().map(edge => "c " + edge.join(" ") + "\n"),
+    "# editor-state " + JSON.stringify(cageEditorState()) + "\n"]), `${fileName.value.trim() || "untitled"}.cage`);
+  markSaved();
 }
 
 save.onclick = saveCage;
@@ -1698,7 +2128,7 @@ document.querySelector("#open-cage").onchange = async event => {
       .map(line => line.slice(2).trim().split(/\s+/).map(Number)) : null;
     const loadedCreases = lines.filter(line => line.startsWith("c "))
       .map(line => line.slice(2).trim().split(/\s+/).map(Number));
-    const points = lines.filter(line => !line.startsWith("c ") && (!explicit || !line.startsWith("q ")))
+    const points = lines.filter(line => !line.startsWith("# editor-state ") && !line.startsWith("c ") && (!explicit || !line.startsWith("q ")))
       .map(line => line.trim().split(/\s+/).map(Number));
     if (!(mm >= 1e-9 && mm <= 1e12) || points.length < 8 || points.length > (explicit ? 128 : 32) ||
         (!explicit && (points.length % 4 || (header !== "subd-sections 1" && points.length !== 8))) ||
@@ -1712,22 +2142,49 @@ document.querySelector("#open-cage").onchange = async event => {
         !Number.isInteger(index) || index < 0 || index >= points.length) || edge[0] === edge[1])) {
       throw new Error("Invalid crease endpoints");
     }
+    const editorState=parseEditorState(lines,points.length,loadedCreases.some(edge=>edge[2]!==0));
+    // Verify mirror pairing before replacing the current document.
+    let pairs=null;
+    if(editorState.mirrored) {
+      const previousPoints=cage, previousFaces=explicitFaces;
+      try {
+        cage=points; explicitFaces=quads;
+        pairs=findMirrorPairs(editorState.mirrorAxis);
+      } finally {
+        cage=previousPoints; explicitFaces=previousFaces;
+      }
+      if(!pairs) throw new Error("Saved mirror plane does not match the cage");
+      const locks=new Set(editorState.locks), targets=new Map(editorState.surfaceLocks);
+      if(editorState.locks.some(index=>!locks.has(pairs[index])) ||
+        editorState.surfaceLocks.some(([index,point])=>{
+          const partner=targets.get(pairs[index]);
+          return !partner || point.some((value,axis)=>
+            Math.abs((axis===editorState.mirrorAxis?-value:value)-partner[axis])>1e-8);
+        })) throw new Error("Saved locks do not match mirror symmetry");
+    }
     if (drag) throw new Error("Finish dragging before opening a cage");
+    if (documentSignature() !== savedDocument &&
+        !window.confirm("Open this cage and replace your unsaved model?")) return;
     history.length = 0;
-    undo.disabled = true;
+    future.length = 0;
+    syncHistory();
     cage = points;
-    mirrorPairs = null;
+    mirrorAxis=editorState.mirrorAxis;
+    mirrorPairs = pairs;
     syncMirrorButtons();
-    lockedVertices.clear();
-    surfaceLocks.clear();
+    lockedVertices=new Set(editorState.locks);
+    surfaceLocks=new Map(editorState.surfaceLocks);
     explicitFaces = quads;
     creases = new Map(loadedCreases.filter(edge => edge[2] !== 0).map(([a,b,weight]) => [edgeKey(a,b),weight ?? Infinity]));
     width.value = mm;
     fileName.value = file.name.replace(/\.cage$/i, "");
+    markSaved();
     selected = null;
     selectedVertices.clear();
     selectedFace = null;
-    selectedEdge = null;
+    selectedLoop = null;
+  selectedEdges.clear();
+  selectedEdge = null;
     updateDimensions();
     draw();
     refresh();
@@ -1763,7 +2220,104 @@ saveDialog.onclose = async () => {
     updateDimensions();
   }
 };
+const recoveryKey = "subd-modeller-session-v1";
+const dirtyIndicator = document.querySelector("#dirty-indicator");
+let savedDocument = "";
+let recoveryTimer;
+
+function sessionDocument() {
+  return {
+    version:1, points:cage, faces:explicitFaces, width:Number(width.value),
+    creases:creasePairs(), locks:[...lockedVertices], surfaceLocks:[...surfaceLocks],
+    mirrorAxis, mirrored:!!mirrorPairs, name:fileName.value
+  };
+}
+
+function documentSignature() {
+  return JSON.stringify(sessionDocument());
+}
+
+function storeRecovery() {
+  if (newPreview || !width.validity.valid) return;
+  const signature = documentSignature();
+  dirtyIndicator.hidden = signature === savedDocument;
+  try {
+    localStorage.setItem(recoveryKey, JSON.stringify({document:sessionDocument(), saved:savedDocument}));
+  } catch {
+    status.textContent = "Browser recovery storage unavailable. Save your cage to a file.";
+  }
+}
+
+function scheduleRecovery() {
+  if (newPreview) return;
+  clearTimeout(recoveryTimer);
+  recoveryTimer = setTimeout(storeRecovery, 200);
+}
+
+function markSaved() {
+  savedDocument = documentSignature();
+  storeRecovery();
+}
+
+function recoverSession() {
+  try {
+    const text=localStorage.getItem(recoveryKey);
+    if (!text) return false;
+    const {document:d,saved}=JSON.parse(text);
+    const validIndex=i=>Number.isInteger(i)&&i>=0&&i<d.points.length;
+    if (d.version!==1 || !Array.isArray(d.points) || d.points.length<8 || d.points.length>128 ||
+      d.points.some(p=>!Array.isArray(p)||p.length!==3||p.some(v=>typeof v!=="number"||!Number.isFinite(v)||Math.abs(v)>1e12)) ||
+      !(d.width>=1e-9&&d.width<=1e12) || ![0,1,2].includes(d.mirrorAxis) ||
+      (d.faces!==null && (!Array.isArray(d.faces)||d.faces.length<6||d.faces.length>126||
+        d.faces.some(f=>f.length!==4||!f.every(validIndex)))) ||
+      (d.faces===null && (d.points.length>32||d.points.length%4)) ||
+      !Array.isArray(d.creases)||!d.creases.every(e=>[2,3].includes(e.length)&&e.slice(0,2).every(validIndex)&&
+        (e.length===2||(e[2]>0&&e[2]<=3))) ||
+      !Array.isArray(d.locks)||!d.locks.every(validIndex) ||
+      !Array.isArray(d.surfaceLocks)||!d.surfaceLocks.every(([i,p])=>validIndex(i)&&d.locks.includes(i)&&
+        Array.isArray(p)&&p.length===3&&p.every(v=>typeof v==="number"&&Number.isFinite(v)))) {
+      throw new Error("Invalid recovery data");
+    }
+    cage=d.points;
+    explicitFaces=d.faces;
+    width.value=d.width;
+    creases=new Map(d.creases.map(([a,b,w])=>[edgeKey(a,b),w??Infinity]));
+    lockedVertices=new Set(d.locks);
+    surfaceLocks=new Map(d.surfaceLocks);
+    mirrorAxis=d.mirrorAxis;
+    mirrorPairs=d.mirrored?findMirrorPairs():null;
+    syncMirrorButtons();
+    fileName.value=typeof d.name==="string"?d.name:"untitled";
+    savedDocument=typeof saved==="string"?saved:"";
+    dirtyIndicator.hidden=documentSignature()===savedDocument;
+    return true;
+  } catch {
+    status.textContent="The browser recovery copy could not be opened. Use File → Open.";
+    return false;
+  }
+}
+
+window.addEventListener("beforeunload", event=>{
+  if (newPreview) {
+    if (!dirtyIndicator.hidden) { event.preventDefault(); event.returnValue=""; }
+    return;
+  }
+  storeRecovery();
+  if(documentSignature()!==savedDocument) {
+    event.preventDefault();
+    event.returnValue="";
+  }
+});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden") storeRecovery();
+});
+width.addEventListener("change",storeRecovery);
+const recovered=recoverSession();
+if(!recovered) savedDocument=documentSignature();
 new ResizeObserver(draw).observe(canvas);
-refresh();
+refresh().then(()=>{
+  if(recovered) status.textContent="Recovered your last browser session";
+});
+
 </script>
 </html>

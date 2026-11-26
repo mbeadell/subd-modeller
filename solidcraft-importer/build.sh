@@ -22,7 +22,7 @@ package_dir="$build_dir/subd-cage"
 mkdir -p "$package_dir/tests"
 cp "$plugin_dir/plugin.json" "$package_dir/"
 cp "$plugin_dir/tests/"* "$package_dir/tests/"
-cp "$repo_dir/examples/creased-cylinder-V2.cage" "$package_dir/tests/"
+cp "$repo_dir/examples/creased-cylinder-V2.cage" "$repo_dir/examples/symmetric-enclosure.cage" "$package_dir/tests/"
 
 wasm-tools component new "$repo_dir/target/wasm32-unknown-unknown/release/subd_cage_importer.wasm" \
     -o "$package_dir/subd-cage.wasm"
