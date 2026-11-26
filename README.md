@@ -8,13 +8,33 @@ the Rust CLI.
 See the [project roadmap](ROADMAP.md) for completed work, proposed priorities,
 and regression milestones.
 
-Current version: **0.4.0**.
+Current version: **0.5.0**.
 
 <img width="1465" height="796" alt="image" src="https://github.com/user-attachments/assets/da3a2ce2-9e50-4fd2-984a-f8fa627f6e66" />
 
 Models are tested with Latest Solidcraft Insert STEP and tested with a Solidcraft extrude cut:
 
 <img width="1468" height="919" alt="image" src="https://github.com/user-attachments/assets/73ed9180-9828-4894-9ad5-1dd65666a698" />
+
+## What's new in v0.5.0
+
+- **Ellipsoid** starts elongated at 140 × 90 × 70 mm.
+- **Cube SubD** uses support loops for tighter rounded edges. The original
+  eight-point cage is available as **Rounded box**.
+- **Equal tee — square cage** and **Equal tee — round cage** provide closed
+  quad starting bodies. Both default to 150 × 50 × 100 mm.
+- The new presets size the rounded level-three SubD preview from the XYZ
+  inputs and support live preview and axis orientation.
+
+Use **File → New** to choose a primitive, adjust its size, and click **Create**.
+Sample [square tee](examples/tee-square.cage) and
+[round tee](examples/tee-round.cage) cages can also be opened through **File → Open**.
+Curved primitives are subdivision approximations.
+
+Both tee presets imported as closed spline solids and passed Ø10 mm through-cuts
+in SolidCraft CLI checks. The user verified the browser controls and a modified
+tee through the importer, a hole cut, and Cura export. These checks cover the
+recorded workflows rather than every possible cage deformation.
 
 ## What's new in v0.4.0
 

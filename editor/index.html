@@ -136,9 +136,9 @@
   <aside id="new-dialog" aria-label="New primitive" hidden>
     <form>
       <label>Primitive <select id="primitive">
-        <option value="cube">Cube</option><option value="cylinder">Cylinder</option>
+        <option value="cube">Rounded box (8-point cage)</option><option value="ellipsoid">Ellipsoid</option><option value="subd-cube">Cube SubD (rounded edges)</option><option value="cylinder">Cylinder</option>
         <option value="cone">Cone</option><option value="torus">Torus</option>
-        <option value="slab">Thin slab</option>
+        <option value="slab">Thin slab</option><option value="tee-square">Equal tee — square cage</option><option value="tee-round">Equal tee — round cage</option>
       </select></label>
       <label id="primitive-axis-label" hidden>Axis <select id="primitive-axis">
         <option>X</option><option>Y</option><option selected>Z</option>
@@ -147,6 +147,7 @@
       <label>X width (mm) <input class="primitive-size" type="number" step="any" min="0.000001" max="1000000" value="100" required></label>
       <label>Y depth (mm) <input class="primitive-size" type="number" step="any" min="0.000001" max="1000000" value="100" required></label>
       <label>Z height (mm) <input class="primitive-size" type="number" step="any" min="0.000001" max="1000000" value="100" required></label>
+      <p id="primitive-sizing-note"></p>
       <button type="button" id="cancel-new">Cancel</button><button type="submit">Create</button>
     </form>
   </aside>
@@ -1915,7 +1916,85 @@ function editFace(extruding) {
 subdivide.onclick = () => selectedEdge ? insertLoop.click() : editFace(false);
 extrude.onclick = () => editFace(true);
 
+function cubeSurfaceGrid(coordinates, spherical) {
+  const points=[], quads=[], vertices=new Map();
+  const vertex=(point)=>{
+    const key=point.join(":");
+    if(!vertices.has(key)) {
+      vertices.set(key,points.length);
+      const length=spherical?Math.hypot(...point):1;
+      points.push(point.map(value=>value/length));
+    }
+    return vertices.get(key);
+  };
+  for(const [normal,u,v,sign] of [[0,1,2,1],[0,2,1,-1],[1,2,0,1],
+      [1,0,2,-1],[2,0,1,1],[2,1,0,-1]]) {
+    for(let i=0;i<coordinates.length-1;i++) for(let j=0;j<coordinates.length-1;j++) {
+      quads.push([[i,j],[i+1,j],[i+1,j+1],[i,j+1]].map(([a,b])=>{
+        const point=[0,0,0]; point[normal]=sign;
+        point[u]=coordinates[a];point[v]=coordinates[b];
+        return vertex(point);
+      }));
+    }
+  }
+  return {points,quads};
+}
+
+function teeMesh(round) {
+  const r=1/3;
+  const points=cube.map(point=>point.map(value=>value*r));
+  const baseFaces=[[0,3,2,1],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]];
+  const quads=[];
+  const arms=new Map([[1,[2,1]],[3,[0,1]],[5,[0,-1]]]);
+  baseFaces.forEach((face,index)=>{
+    if(!arms.has(index)) {quads.push(face);return;}
+    const [axis,sign]=arms.get(index);
+    let previous=face;
+    for(const distance of (round ? [1] : [.82,1])) {
+      const ring=face.map(vertex=>{
+        const point=[...points[vertex]];point[axis]=sign*distance;
+        points.push(point);return points.length-1;
+      });
+      for(let side=0;side<4;side++) {
+        const next=(side+1)%4;
+        quads.push([previous[side],previous[next],ring[next],ring[side]]);
+      }
+      previous=ring;
+    }
+    quads.push(previous);
+  });
+  if(!round) return {points,quads};
+  // Linear quad split gives each arm eight boundary points before rounding.
+  const refined=[...points], mids=new Map();
+  const midpoint=(a,b)=>{
+    const key=edgeKey(a,b);
+    if(!mids.has(key)) {
+      mids.set(key,refined.length);
+      refined.push(points[a].map((value,axis)=>(value+points[b][axis])/2));
+    }
+    return mids.get(key);
+  };
+  const faces=quads.flatMap(face=>{
+    const center=refined.length;
+    refined.push([0,1,2].map(axis=>face.reduce((sum,index)=>sum+points[index][axis],0)/4));
+    return face.map((vertex,i)=>[vertex,midpoint(vertex,face[(i+1)%4]),center,midpoint(face[(i+3)%4],vertex)]);
+  });
+  for(const point of refined) {
+    const axis=Math.abs(point[0])>r+1e-8?0:point[2]>r+1e-8?2:null;
+    if(axis===null) continue;
+    const transverse=[0,1,2].filter(i=>i!==axis);
+    const length=Math.hypot(...transverse.map(i=>point[i]));
+    if(!length) continue;
+    const max=Math.max(...transverse.map(i=>Math.abs(point[i])));
+    for(const i of transverse) point[i]*=max/length;
+  }
+  return {points:refined,quads:faces};
+}
+
 function primitiveMesh(kind) {
+  if(kind==="tee-square"||kind==="tee-round") return teeMesh(kind==="tee-round");
+  if(kind==="ellipsoid") return cubeSurfaceGrid([-1,0,1],true);
+  if(kind==="subd-cube") return cubeSurfaceGrid([-1,-.8,.8,1],false);
   if (kind === "cube") return {points: cube.map(point => [...point]), quads: null};
   if (kind === "slab") return {points: cube.map(([x,y,z]) => [x,y,z*0.025]), quads: null};
   const points = [], quads = [];
@@ -1970,11 +2049,16 @@ const primitive = document.querySelector("#primitive");
 const primitiveAxis = document.querySelector("#primitive-axis");
 const primitiveFlip = document.querySelector("#primitive-flip");
 function syncPrimitiveOrientation() {
+  document.querySelector("#primitive-sizing-note").textContent =
+    ["ellipsoid","subd-cube","tee-square","tee-round"].includes(primitive.value)
+      ? "XYZ sizes the rounded SubD preview. Curved primitives are subdivision approximations."
+      : "XYZ sizes the starting cage.";
   document.querySelector("#primitive-axis-label").hidden = primitive.value === "cube";
   document.querySelector("#primitive-flip-label").hidden = primitive.value !== "cone";
 }
 const newDialog = document.querySelector("#new-dialog");
 const primitiveForm = newDialog.querySelector("form");
+const createPrimitiveButton=primitiveForm.querySelector('button[type="submit"]');
 const editorControls = document.querySelectorAll("header, .toolbar, .inspector");
 let newPreview = null;
 
@@ -1998,7 +2082,10 @@ document.querySelector("#new").onclick = () => {
   primitive.focus();
 };
 
-function previewPrimitive() {
+let primitiveRequest=0;
+async function previewPrimitive() {
+  const request=++primitiveRequest;
+  createPrimitiveButton.disabled=true;
   syncPrimitiveOrientation();
   if (!primitiveForm.checkValidity()) return;
   const model = primitiveMesh(primitive.value);
@@ -2006,14 +2093,28 @@ function previewPrimitive() {
   const flip = primitive.value === "cone" && primitiveFlip.checked;
   model.points = model.points.map(point => orientPrimitive(point, axis, flip));
   const dimensionsMm = [...newDialog.querySelectorAll(".primitive-size")].map(input => input.valueAsNumber);
+  let sizingPoints=model.points;
+  if(["ellipsoid","subd-cube","tee-square","tee-round"].includes(primitive.value)) {
+    status.textContent="Sizing rounded primitive…";
+    try {
+      const response=await fetch("/preview",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({points:model.points,quads:model.quads,creases:[]})});
+      if(!response.ok) throw new Error("Could not size primitive");
+      sizingPoints=(await response.text()).split("\n").filter(line=>line.startsWith("v "))
+        .map(line=>line.split(" ").slice(1).map(Number));
+      if(request!==primitiveRequest||!newPreview) return;
+    } catch(error) { status.textContent=error.message;return; }
+  }
+  if(request!==primitiveRequest||!newPreview) return;
   const extents = dimensionsMm.map((_, axis) => {
-    const coordinates = model.points.map(point => point[axis]);
+    const coordinates = sizingPoints.map(point => point[axis]);
     return Math.max(...coordinates) - Math.min(...coordinates);
   });
   width.value = dimensionsMm[0];
   cage = model.points.map(point => point.map((value, axis) =>
     value * dimensionsMm[axis] / extents[axis] / (dimensionsMm[0] / 2)));
   explicitFaces = model.quads;
+  createPrimitiveButton.disabled=false;
   mesh = { points: [], faces: [], cageSize: 0, topology: null };
   draw();
   refresh();
@@ -2044,10 +2145,16 @@ function finishPrimitive(create) {
   canvas.focus({preventScroll: true});
 }
 
+primitive.addEventListener("input", () => {
+  const dimensions = primitive.value === "ellipsoid" ? [140, 90, 70] : primitive.value.startsWith("tee-") ? [150,50,100] : [100, 100, 100];
+  for (const [index, field] of [...newDialog.querySelectorAll(".primitive-size")].entries()) {
+    field.value = dimensions[index];
+  }
+});
 primitiveForm.addEventListener("input", previewPrimitive);
 primitiveForm.onsubmit = event => {
   event.preventDefault();
-  finishPrimitive(true);
+  if(!createPrimitiveButton.disabled) finishPrimitive(true);
 };
 document.querySelector("#cancel-new").onclick = () => finishPrimitive(false);
 document.addEventListener("keydown", event => {

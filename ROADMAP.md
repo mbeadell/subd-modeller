@@ -151,3 +151,28 @@ The direct STEP route measured 380,143.9833 mm³ before the cut and
 376,250.0223 mm³ afterwards. The STL has 2,304 triangles. The user verified opening the cage in the editor, importing with SolidCraft
 0.50.0, cutting a Ø10 mm hole, and sending SolidCraft STL/3MF to Cura.
 The modeller’s native STL was also verified in Cura.
+
+
+### Primitive additions in v0.5.0
+
+Ellipsoid and rounded-edge Cube SubD presets are implemented. Their XYZ inputs
+size the level-three SubD preview. The ellipsoid is an approximation.
+Both presets exported as closed spline solids in SolidCraft CLI checks.
+Browser interaction was verified by the user. Separate through-cut and Cura
+checks for the ellipsoid and Cube SubD remain pending. Both tee presets
+from issue #3 are implemented.
+
+
+### Tee prototype verification
+
+Square-section and round-section tee cages are available in File → New.
+The square cage has 32 vertices and 30 faces. The round cage has 74 vertices
+and 72 faces. Both are closed quad cages and import as closed spline solids.
+The rounded dimensions are set by the SubD preview. Curved cross-sections
+are approximations. The sample cages are retained as
+[tee-square](examples/tee-square.cage) and [tee-round](examples/tee-round.cage).
+
+
+The user verified both tee presets in the browser and confirmed the importer,
+hole-cut, and Cura workflow on a modified tee. The modified model was tested
+by the user and has not been added as a separate regression fixture.
